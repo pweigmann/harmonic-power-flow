@@ -64,4 +64,58 @@ V_inv = np.linalg.inv(V)
 # solve for Norton admittances and current source, fundamental frequency
 Y_I_Norton_f = V_inv.dot(I)  # NOT the same results as in the paper...
 
+# let's try the next step: calculate harmonics with Norton parameters as mentioned in the paper
+Y_N_paper = np.array([
+    [-0.79-0.981j, 6.065+8.387j, -38.4-25.34j],
+    [-1.216-0.982j, -1.068+5.375j, -2.724-5.45j],
+    [-0.649+0.276j, 1.858+2.038j, -9.886+0.956j]
+])
 
+I_N_paper = np.array([
+    1.165*np.exp(-81.34*rad*1j),
+    1.515*np.exp(-135.72*rad*1j),
+    0.682*np.exp(158.49*rad*1j)
+])
+
+# line impedance and admittance (scaled with frequency...?)
+# (now scaled, so THD_v matched the paper)
+Z_Line_f = 0.05 + 0.25j
+Y_Line_f = 1/Z_Line_f
+
+Z_Line_3 = Z_Line_f*1.5
+Y_Line_3 = 1/Z_Line_3
+
+Z_Line_5 = Z_Line_f*2
+Y_Line_5 = 1/Z_Line_5
+
+# defining sub-matrices
+Y_ss = np.array([
+    [Y_Line_f, 0, 0],
+    [0, Y_Line_3, 0],
+    [0, 0, Y_Line_5]
+])
+
+Y_sl = np.array([
+    [-Y_Line_f, 0, 0],
+    [0, -Y_Line_3, 0],
+    [0, 0, -Y_Line_5]
+])
+
+Y_ls = Y_sl
+
+Y_ll = Y_N_paper + Y_ss
+
+Y_ll_inv = np.linalg.inv(Y_ll)
+
+# given are supply voltages and load currents
+V_s_I_l = np.concatenate((np.array([V_f_3, V_3_3, V_5_3]), I_N_paper))
+
+# calculating unknown voltages and currents
+Y = np.concatenate((np.concatenate((Y_ss, Y_sl), axis=1), np.concatenate((Y_ls, Y_ll), axis=1)))
+# (see Almeida.2010)
+I_s_V_l = np.concatenate((np.concatenate((Y_ss - (Y_sl.dot(Y_ll_inv).dot(Y_ls)), Y_sl.dot(Y_ll_inv)), axis=1),
+                          np.concatenate((-Y_ll_inv.dot(Y_ls), Y_ll_inv), axis=1))).dot(V_s_I_l)
+
+# calculating THD of voltage (correct? no -> change to polar coordinates to get correct amplitude)
+THD_v = np.sqrt(I_s_V_l[4]**2+I_s_V_l[5]**2)/I_s_V_l[3]
+print(THD_v)
