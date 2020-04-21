@@ -10,8 +10,8 @@ pu_factor = 400  # as in PyPSA example
 
 # buses and there initial state
 bus0 = {"type": "slack", "P": 100, "Q": 0, "V": 1, "theta": 0}  # gen, slack bus
-bus1 = {"type": "PQ", "P": -80, "Q": -100, "V": 1, "theta": 0}  # load
-bus2 = {"type": "PQ", "P": -20, "Q": 0, "V": 1, "theta": 0}
+bus1 = {"type": "PQ", "P": -80, "Q": -80, "V": 1, "theta": 0}  # load
+bus2 = {"type": "PQ", "P": -20, "Q": -20, "V": 1, "theta": 0}  # nonlinear load
 
 # lines (no shunt impedances)
 line0 = {"from": "bus0", "to": "bus1", "x": 0.1, "R": 0.01}
@@ -23,22 +23,15 @@ y01 = 1/(line0["R"]/pu_factor + 1j*line0["x"]/pu_factor)
 y12 = 1/(line1["R"]/pu_factor + 1j*line1["x"]/pu_factor)
 y20 = 1/(line2["R"]/pu_factor + 1j*line2["x"]/pu_factor)
 
-# admittance matrix, fundamental frequency
+# grid admittance matrix, fundamental frequency
 Y_f = np.array([[y01+y20, -y01, -y20],
                 [-y01, y12+y01, -y12],
                 [-y12, -y20, y12+y20]])
 
-# Y_3 = np.array([[y01+y20, -y01, -y20],
-#                [-y01, y12+y01, -y12],
-#                [-y12, -y20, y12+y20]])/4
-
-# Y_5 = np.array([[y01+y20, -y01, -y20],
-#                [-y01, y12+y01, -y12],
-#                [-y12, -y20, y12+y20]])/12
-
 n_iter = 0
 max_iter = 20
 err = 1
+rad = 2*np.pi/360  # change degree to radians
 
 while err > 10e-2 and n_iter < max_iter:
     # count iterations
@@ -95,3 +88,47 @@ else:
 
 print("Final voltages at buses: \n bus0: %s \n bus1: %s \n bus2: %s"
       % (bus0["V"], bus1["V"], bus2["V"]))
+
+# Harmonic power flow with nonlinear load at bus 2
+
+# extend buses, initial guess for harmonic voltages, common approach: V = 0.1 pu
+bus0.update({"V3": 0.1, "V5": 0.1, "theta3": 0, "theta5": 0})
+bus1.update({"V3": 0.1, "V5": 0.1, "theta3": 0, "theta5": 0})
+bus2.update({"V3": 0.1, "V5": 0.1, "theta3": 0, "theta5": 0})
+
+# grid admittance matrix, harmonic frequencies, scaled linearly
+Y_3 = np.array([[y01+y20, -y01, -y20],
+                [-y01, y12+y01, -y12],
+                [-y12, -y20, y12+y20]])/3
+
+Y_5 = np.array([[y01+y20, -y01, -y20],
+                [-y01, y12+y01, -y12],
+                [-y12, -y20, y12+y20]])/5
+
+# Norton parameter, nonlinear load (from almeida)
+Y_N = np.array([
+    [-0.79-0.981j, 6.065+8.387j, -38.4-25.34j],
+    [-1.216-0.982j, -1.068+5.375j, -2.724-5.45j],
+    [-0.649+0.276j, 1.858+2.038j, -9.886+0.956j]
+])
+
+I_N = np.array([
+    1.165*np.exp(-81.34*rad*1j),
+    1.515*np.exp(-135.72*rad*1j),
+    0.682*np.exp(158.49*rad*1j)
+])
+
+bus2.update({"I_N": I_N, "Y_N": Y_N})
+
+
+# function to calculate current injections based on voltage for bus2
+def current_inj(V):
+    I_inj = I_N - Y_N.dot(V)
+    return I_inj
+
+
+I_inj = current_inj(np.array([bus2['V'], bus0['V3'], bus0['V5']]))
+
+# mismatch vector, currents
+dI_f_bus2 = I_inj[0] 
+

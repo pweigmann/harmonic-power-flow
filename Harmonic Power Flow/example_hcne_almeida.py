@@ -64,7 +64,8 @@ V_inv = np.linalg.inv(V)
 # solve for Norton admittances and current source, fundamental frequency
 Y_I_Norton_f = V_inv.dot(I)  # NOT the same results as in the paper...
 
-# let's try the next step: calculate harmonics with Norton parameters as mentioned in the paper
+# let's try the next step:
+# calculate harmonics with Norton parameters as mentioned in the paper
 Y_N_paper = np.array([
     [-0.79-0.981j, 6.065+8.387j, -38.4-25.34j],
     [-1.216-0.982j, -1.068+5.375j, -2.724-5.45j],
