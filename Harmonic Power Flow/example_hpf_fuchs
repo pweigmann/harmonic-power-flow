@@ -19,7 +19,7 @@ def A2P(x):
     return abs(x), np.angle(x)
 
 
-# start, initialize voltage as multi-index DataFrame
+# initialize voltage as multi-index DataFrame
 iterables = [[1, 5], ["bus1", "bus2", "bus3", "bus4"]]
 multiIdx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
 V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
@@ -39,7 +39,7 @@ lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                [4, 4, 1, 0.01, 0.02]]),
                      columns=["ID", "fromID", "toID", "R", "X"])
 
-# step 1: construct Y_f
+# 7.3.5: construct Y_f
 Y_f = np.zeros([lines.shape[0], lines.shape[0]], dtype=complex)
 # non-diagonal elements
 for k in range(0, lines.shape[0]):
@@ -65,3 +65,6 @@ for n in range(0, lines.shape[0]):
         Y_f_p[n, m] = A2P(Y_f[n, m])
 
 # --> correct!
+
+# 7.3.6: fundamental mismatch vector
+V_pol = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
