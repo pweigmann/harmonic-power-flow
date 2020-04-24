@@ -4,10 +4,18 @@
 # Author: Pascal Weigmann, p.weigmann@posteo.de
 
 import numpy as np
-import pandas as pd
 from scipy.sparse.linalg import *
 
 pu_factor = 400  # as in PyPSA example
+
+
+# functions to change from algebraic to polar form
+def P2A(radii, angles):
+    return radii * np.exp(1j*angles)
+
+
+def A2P(x):
+    return abs(x), np.angle(x)
 
 
 # buses and there initial state
@@ -182,9 +190,10 @@ dI_bus0_3 = I_lines_3[0] + I_lines_3[2]
 dI_bus0_5 = I_lines_5[0] + I_lines_5[2]
 dI_bus1_3 = I_lines_3[0] + I_lines_3[1]
 dI_bus1_5 = I_lines_5[0] + I_lines_5[1]
-# these are all zero initially, maybe wrong?
+# these are all zero initially, wrong?
 
 # power mismatch (calculate power by currents, compare to given power)
-I_inj_f_abs = 0  # magnitute
-I_inj_f_delta = 0  # phase
-P_bus2_f = I_inj_f_abs*bus2["V"]*np.cos(I_inj_f_delta - bus2["theta"])
+I_inj_f_abs = A2P(I_inj[0])[0]  # magnitude
+I_inj_f_phase = A2P(I_inj[0])[1]  # phase
+P_bus2_f = I_inj_f_abs*bus2["V"]*np.cos(I_inj_f_phase - bus2["theta"])
+

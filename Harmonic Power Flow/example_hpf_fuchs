@@ -1,0 +1,67 @@
+# 4 Bus example of "classical" harmonic load power based on Xia/Fuchs
+# Starting with example of fundamental load power chapter 7.3, then harmonic
+# extension in chapter 7.4 of Fuchs.2008
+
+# Author: Pascal Weigmann, p.weigmann@posteo.de
+
+import numpy as np
+import pandas as pd
+
+pu_factor = 400  # as in PyPSA example
+
+
+# functions to change from algebraic to polar form
+def P2A(radii, angles):
+    return radii * np.exp(1j*angles)
+
+
+def A2P(x):
+    return abs(x), np.angle(x)
+
+
+# start, initialize voltage as multi-index DataFrame
+iterables = [[1, 5], ["bus1", "bus2", "bus3", "bus4"]]
+multiIdx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
+V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
+                           [0.1, 0], [0.1, 0], [0.1, 0], [0.1, 0]]),
+                 index=multiIdx, columns=["V_m", "V_p"])
+V.sort_index(inplace=True)
+
+# grid: buses and lines with their constant properties
+buses = pd.DataFrame(np.array([[1, "slack", 0, 0, 1000],
+                               [2, "PQ", 100, 100, None],
+                               [3, "PQ", 250, 100, None],
+                               [4, "nonlinear", 0, 0, None]]),
+                     columns=["ID", "type", "P", "Q", "S"])
+lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
+                               [2, 2, 3, 0.02, 0.08],
+                               [3, 3, 4, 0.01, 0.02],
+                               [4, 4, 1, 0.01, 0.02]]),
+                     columns=["ID", "fromID", "toID", "R", "X"])
+
+# step 1: construct Y_f
+Y_f = np.zeros([lines.shape[0], lines.shape[0]], dtype=complex)
+# non-diagonal elements
+for k in range(0, lines.shape[0]):
+    Y_f[int(lines.fromID[k])-1, int(lines.toID[k])-1] = \
+        -1/(lines.R[k] + 1j*lines.X[k])
+    Y_f[int(lines.toID[k])-1, int(lines.fromID[k])-1] =\
+        Y_f[int(lines.fromID[k])-1, int(lines.toID[k])-1]
+
+# diagonal elements
+for n in range(0, lines.shape[0]):
+    for m in range(0, lines.shape[0]):
+        if n == m:
+            # won't work if there are more than two lines per bus
+            # simpler to use sum of values calculated above
+            Y_f[n, m] = 1/(lines[lines.fromID == n+1].R.iloc[0] +
+                           1j*lines[lines.fromID == n+1].X.iloc[0]) +\
+                        (1/(lines[lines.toID == n+1].R.iloc[0] +
+                            1j*lines[lines.toID == n+1].X.iloc[0]))
+
+Y_f_p = np.zeros([lines.shape[0], lines.shape[0]], dtype=tuple)
+for n in range(0, lines.shape[0]):
+    for m in range(0, lines.shape[0]):
+        Y_f_p[n, m] = A2P(Y_f[n, m])
+
+# --> correct!

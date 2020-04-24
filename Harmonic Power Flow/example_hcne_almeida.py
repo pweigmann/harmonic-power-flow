@@ -112,11 +112,15 @@ Y_ll_inv = np.linalg.inv(Y_ll)
 V_s_I_l = np.concatenate((np.array([V_f_3, V_3_3, V_5_3]), I_N_paper))
 
 # calculating unknown voltages and currents
-Y = np.concatenate((np.concatenate((Y_ss, Y_sl), axis=1), np.concatenate((Y_ls, Y_ll), axis=1)))
+Y = np.concatenate((np.concatenate((Y_ss, Y_sl), axis=1),
+                    np.concatenate((Y_ls, Y_ll), axis=1)))
 # (see Almeida.2010)
-I_s_V_l = np.concatenate((np.concatenate((Y_ss - (Y_sl.dot(Y_ll_inv).dot(Y_ls)), Y_sl.dot(Y_ll_inv)), axis=1),
-                          np.concatenate((-Y_ll_inv.dot(Y_ls), Y_ll_inv), axis=1))).dot(V_s_I_l)
+I_s_V_l = np.concatenate((np.concatenate((Y_ss - (Y_sl.dot(Y_ll_inv).dot(Y_ls)),
+                                          Y_sl.dot(Y_ll_inv)), axis=1),
+                          np.concatenate((-Y_ll_inv.dot(Y_ls), Y_ll_inv),
+                                         axis=1))).dot(V_s_I_l)
 
-# calculating THD of voltage (correct? no -> change to polar coordinates to get correct amplitude)
+# calculating THD of voltage
+# (correct? no -> change to polar coordinates to get correct amplitude)
 THD_v = np.sqrt(I_s_V_l[4]**2+I_s_V_l[5]**2)/I_s_V_l[3]
 print(THD_v)
