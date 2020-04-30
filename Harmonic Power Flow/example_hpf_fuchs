@@ -7,7 +7,7 @@
 import numpy as np
 import pandas as pd
 
-pu_factor = 400  # as in PyPSA example
+pu_factor = 1000  # as in PyPSA example
 
 
 # functions to change from algebraic to polar form
@@ -30,8 +30,8 @@ V.sort_index(inplace=True)
 # grid: buses and lines with their constant properties
 buses = pd.DataFrame(np.array([[1, "slack", 0, 0, 1000],
                                [2, "PQ", 100, 100, None],
-                               [3, "PQ", 250, 100, None],
-                               [4, "nonlinear", 0, 0, None]]),
+                               [3, "PQ", 0, 0, None],
+                               [4, "nonlinear", 250, 100, None]]),
                      columns=["ID", "type", "P", "Q", "S"])
 lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                [2, 2, 3, 0.02, 0.08],
@@ -66,5 +66,32 @@ for n in range(0, lines.shape[0]):
 
 # --> correct!
 
-# 7.3.6: fundamental mismatch vector
+# 7.3.6: fundamental mismatch vector (doesn't contain slack bus)
 V_pol = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+V_init = pd.Series([])
+for n in range(0, len(V_pol)):
+    V_init = V_init.append(pd.Series([V_pol[n].imag, V_pol[n].real],
+                                     index=["V_" + str(n) + "_theta",
+                                     "V_" + str(n) + "_m"]))
+S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor
+dm = np.array(V_pol*np.conj(Y_f.dot(V_pol))) - np.array(S)
+
+# manuel variant as written in fuchs
+# F_r = np.zeros(len(buses))
+# F_i = np.zeros(len(buses))
+#
+# for n in range(1, len(buses)):
+#     for m in range(0, len(buses)):
+#         F_r[n] = F_r[n] + Y_f_p[n, m][0]*V.iloc[n, 0]*V.iloc[m, 0] * \
+#                  np.cos(-Y_f_p[n, m][1] - V.iloc[m, 1] + V.iloc[n, 1])
+#         F_i[n] = F_i[n] + Y_f_p[n, m][0]*V.iloc[n, 0]*V.iloc[m, 0] * \
+#                  np.sin(-Y_f_p[n, m][1] - V.iloc[m, 1] + V.iloc[n, 1])
+#
+# dm2 = F_r[1:] + 1j*F_i[1:] - S[1:]
+
+# max norm best choice?
+err = np.linalg.norm(dm, np.Inf)
+
+# 7.3.7: fundamental Jacobian
+dSdt = - V_pol*np.conj(Y_f.dot(V_pol))
+
