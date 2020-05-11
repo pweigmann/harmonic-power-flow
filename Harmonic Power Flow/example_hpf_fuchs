@@ -67,14 +67,14 @@ for n in range(0, lines.shape[0]):
 # --> correct!
 
 # 7.3.6: fundamental mismatch vector (doesn't contain slack bus)
-V_pol = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
 V_init = pd.Series([])
-for n in range(0, len(V_pol)):
-    V_init = V_init.append(pd.Series([V_pol[n].imag, V_pol[n].real],
+for n in range(0, len(V_f)):
+    V_init = V_init.append(pd.Series([V_f[n].imag, V_f[n].real],
                                      index=["V_" + str(n) + "_theta",
                                      "V_" + str(n) + "_m"]))
 S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor
-dm = np.array(V_pol*np.conj(Y_f.dot(V_pol))) - np.array(S)
+dm = np.array(V_f*np.conj(Y_f.dot(V_f))) - np.array(S)
 
 # manuel variant as written in fuchs
 # F_r = np.zeros(len(buses))
@@ -92,12 +92,34 @@ dm = np.array(V_pol*np.conj(Y_f.dot(V_pol))) - np.array(S)
 # max norm best choice?
 err = np.linalg.norm(dm, np.Inf)
 
-# 7.3.7: fundamental Jacobian (manual variant, compare to PyPsa for elegant way)
-# dSdt = - V_pol*np.conj(Y_f.dot(V_pol))
-J_f = np.zeros([6, 6])
-for n in range(0, 6):
-    for m in range(0, 6):
-        if n == m:
-            J_f[n, m] = 1j
+# 7.3.7: fundamental Jacobian (calculated like pypsa does)
+I_diag = np.diag(Y_f.dot(V_f))
+V_diag = np.diag(V_f)
+V_diag_norm = np.diag(V_f/abs(V_f))
 
-dSdt_diag = - V_pol*np.conj(Y_f.dot(V_pol))
+dSdt = 1j*V_diag.dot(np.conj(I_diag - Y_f.dot(V_diag)))
+dPdt = dSdt.real
+dQdt = dSdt.imag
+
+dSdV = V_diag_norm.dot(np.conj(I_diag)) + \
+       V_diag.dot(np.conj(Y_f.dot(V_diag_norm)))
+dPdV = dSdV.real
+dQdV = dSdV.imag
+
+# order of jacobian entries is differs from pypsa to fuchs, sorting:
+Jb = np.zeros(2*(len(buses), 2*len(buses)))
+
+for n in range(len(buses)):
+    for m in range(len(buses)):
+        Jb[2*n, 2*m] = dPdt[n, m]
+        Jb[2*n+1, 2*m] = dQdt[n, m]
+        Jb[2*n, 2*m+1] = dPdV[n, m]
+        Jb[2*n+1, 2*m+1] = dQdV[n, m]
+
+J = Jb[2:, 2:]  # correct! (Fuchs, p.591)
+
+# 7.3.8: calculate the inverse of the Jacobian
+J_inv = np.linalg.inv(J)
+
+# 7.3.10: compute correction vector
+# ...
