@@ -92,6 +92,12 @@ dm = np.array(V_pol*np.conj(Y_f.dot(V_pol))) - np.array(S)
 # max norm best choice?
 err = np.linalg.norm(dm, np.Inf)
 
-# 7.3.7: fundamental Jacobian
-dSdt = - V_pol*np.conj(Y_f.dot(V_pol))
+# 7.3.7: fundamental Jacobian (manual variant, compare to PyPsa for elegant way)
+# dSdt = - V_pol*np.conj(Y_f.dot(V_pol))
+J_f = np.zeros([6, 6])
+for n in range(0, 6):
+    for m in range(0, 6):
+        if n == m:
+            J_f[n, m] = 1j
 
+dSdt_diag = - V_pol*np.conj(Y_f.dot(V_pol))

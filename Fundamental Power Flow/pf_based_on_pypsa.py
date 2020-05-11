@@ -56,10 +56,11 @@ while err > 10e-2 and n_iter < max_iter:
     err = np.linalg.norm(f, np.Inf)
 
     # calculate Jacobian (close to PyPSA example)
-    # delta S/delta theta matrix
-    dSdt = 1j*V_diag.dot(np.conj(Y_f.dot(V) - Y_f.dot(V_diag)))
+    # delta S/delta theta matrix (contained error in previous version, caused by
+    # sparse matrix multiplication syntax)
+    dSdt = 1j*V_diag.dot(np.conj(np.diag(Y_f.dot(V)) - Y_f.dot(V_diag)))
 
-    # delta S/delta V matrix (not yet calculated by hand)
+    # delta S/delta V matrix (not yet calculated by hand, also wrong?)
     dSdV = V_diag_norm.dot(np.conj(Y_f.dot(V))) + \
            V_diag.dot(np.conj(Y_f.dot(V_diag_norm)))
     J00 = dSdt[1:, 1:].real

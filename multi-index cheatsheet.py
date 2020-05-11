@@ -2,7 +2,9 @@
 
 import numpy as np
 import pandas as pd
+from scipy.sparse import csr_matrix
 
+# Multi-index handling
 # example multi-index DataFrame
 iterables = [[1, 5], ["bus1", "bus2", "bus3", "bus4"]]
 multiIdx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
@@ -17,11 +19,11 @@ V.columns
 V.head()  # show first 5 rows
 
 # manipulate index
-V.reset_index()
-V.set_index()
-V.sort_index()  # necessary for slicing
-V.swaplevel()  # swap indices
-V.unstack()  # expand one index level into new column level
+# V.reset_index()
+# V.set_index()
+# V.sort_index()  # necessary for slicing
+# V.swaplevel()  # swap indices
+# V.unstack()  # expand one index level into new column level
 
 
 # direct indexing
@@ -53,11 +55,25 @@ V.iloc[0]
 # value of first row, first column
 V.iloc[0, 0]
 
-# returns a list of rows as df
-V.iloc
 
 
 # groupby
 # calculate mean of each harmonic (find number with .size() )
 V.groupby(["harmonic"]).mean()
 
+# Matrix multiplication
+A = np.array([[1,2],[3,4]])
+B = np.array([[5,0],[0,8]])
+Csp = csr_matrix([[5,0],[0,8]])  # sparse matrix
+
+# element wise multiplication
+A * B
+
+# matrix-multiplication
+A.dot(B)
+
+# sparse multiplication is matrix-multiplication!
+A*Csp
+
+# this returns matrix of sparse matrices
+A.dot(Csp)
