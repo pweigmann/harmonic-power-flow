@@ -5,6 +5,7 @@
       <w>diag</w>
       <w>impedances</w>
       <w>jacobian</w>
+      <w>raphson</w>
     </words>
   </dictionary>
 </component>
