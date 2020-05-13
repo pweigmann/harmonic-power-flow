@@ -55,11 +55,28 @@ V.iloc[0]
 # value of first row, first column
 V.iloc[0, 0]
 
+# .at
+# like .loc but for getting and setting single values (.iat analog)
+V.at[(1, "bus1"), "V_m"]
+V.iat[2, 0]
 
+# .xs
+# cross section, which takes "level" argument (no writing)
+# e.g. for selecting by second index of multi-index
+V.xs("bus1", level=1, drop_level=False)
 
-# groupby
+# same, but using slices
+V.loc[(slice(None), "bus1"), :]
+V.loc[(slice(None), "bus1"), "V_m"]
+
+# most "matlab" like, typically abbreviated by "idx = pd.IndexSlice"
+V.loc[pd.IndexSlice[:, 'bus1'], :]
+
+# .groupby
 # calculate mean of each harmonic (find number with .size() )
 V.groupby(["harmonic"]).mean()
+
+
 
 # Matrix multiplication
 A = np.array([[1,2],[3,4]])
@@ -77,3 +94,4 @@ A*Csp
 
 # this returns matrix of sparse matrices
 A.dot(Csp)
+

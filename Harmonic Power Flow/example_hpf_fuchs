@@ -31,11 +31,11 @@ V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
 V.sort_index(inplace=True)
 
 # grid: buses and lines with their constant properties
-buses = pd.DataFrame(np.array([[1, "slack", 0, 0, 1000],
-                               [2, "PQ", 100, 100, None],
-                               [3, "PQ", 0, 0, None],
-                               [4, "nonlinear", 250, 100, None]]),
-                     columns=["ID", "type", "P", "Q", "S"])
+buses = pd.DataFrame(np.array([[1, "slack", 0, 0, 1000, 0.0001],
+                               [2, "PQ", 100, 100, None, 0],
+                               [3, "PQ", 0, 0, None, 0],
+                               [4, "nonlinear", 250, 100, None, 0]]),
+                     columns=["ID", "type", "P", "Q", "S", "X_shunt"])
 lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                [2, 2, 3, 0.02, 0.08],
                                [3, 3, 4, 0.01, 0.02],
@@ -43,7 +43,7 @@ lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                      columns=["ID", "fromID", "toID", "R", "X"])
 
 # 7.3.5: construct Y_f
-Y_f = np.zeros([lines.shape[0], lines.shape[0]], dtype=complex)
+Y_f = np.zeros([len(buses), len(buses)], dtype=complex)
 # non-diagonal elements
 for k in range(0, lines.shape[0]):
     Y_f[int(lines.fromID[k])-1, int(lines.toID[k])-1] = \
@@ -52,8 +52,8 @@ for k in range(0, lines.shape[0]):
         Y_f[int(lines.fromID[k])-1, int(lines.toID[k])-1]
 
 # diagonal elements
-for n in range(0, lines.shape[0]):
-    for m in range(0, lines.shape[0]):
+for n in range(0, len(buses)):
+    for m in range(0, len(buses)):
         if n == m:
             # won't work if there are more than two lines per bus
             # simpler to use sum of values calculated above
@@ -61,10 +61,10 @@ for n in range(0, lines.shape[0]):
                            1j*lines[lines.fromID == n+1].X.iloc[0]) +\
                         (1/(lines[lines.toID == n+1].R.iloc[0] +
                             1j*lines[lines.toID == n+1].X.iloc[0]))
-
-Y_f_p = np.zeros([lines.shape[0], lines.shape[0]], dtype=tuple)
-for n in range(0, lines.shape[0]):
-    for m in range(0, lines.shape[0]):
+# change base for comparison to Fuchs
+Y_f_p = np.zeros([len(buses), len(buses)], dtype=tuple)
+for n in range(0, len(buses)):
+    for m in range(0, len(buses)):
         Y_f_p[n, m] = A2P(Y_f[n, m])
 
 # --> correct!
@@ -165,4 +165,38 @@ while err > 0.0001 and n_iter < 100:
 print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, strange
 print(str(n_iter) + " iterations")
 
-# HARMONIC POWER FLOW
+# HARMONIC POWER FLOW, only 5th harmonic considered
+h = 5
+# 7.4.7: Computation of harmonic admittance matrix
+# Swing bus has different representation - fundamental vs. harmonic (p. 288)
+# Fundamental admittance matrix from fundamental power flow:
+Y_f = Y_f  # might be included in a multi-index later
+
+# Harmonic admittance matrix, as fund. but reactance scales with harmonic no.
+Y_5 = np.zeros([len(buses), len(buses)], dtype=complex)
+# non-diagonal elements
+for k in range(0, len(lines)):
+    Y_5[int(lines.fromID[k])-1, int(lines.toID[k])-1] = \
+        -1/(lines.R[k] + 1j*lines.X[k]*h)
+    Y_5[int(lines.toID[k])-1, int(lines.fromID[k])-1] =\
+        Y_5[int(lines.fromID[k])-1, int(lines.toID[k])-1]
+# diagonal elements
+# slack self admittance added as subtransient(?) admittance (p.288/595)
+for n in range(len(buses)):
+    if buses["X_shunt"][n] == 0:
+        Y_5[n, n] = -sum(Y_5[n, :])
+    else:
+        Y_5[n, n] = -sum(Y_5[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
+# --> correct
+
+# 7.4.8: Computation of nonlinear load harmonic currents
+# in this case independent of alpha and beta
+def I_inj(V, bus, alpha, beta):
+    g_r = 0.3*(V.loc[1, bus]["V_m"])
+
+
+# 7.4.9: Evaluation of harmonic mismatch vector
+
+# 7.4.10: Evaluation of harmonic and fundamental Jacobian
+
+# 7.4.11: Computation of correction bus vector and iterating
