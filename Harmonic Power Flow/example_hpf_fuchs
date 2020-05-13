@@ -189,11 +189,54 @@ for n in range(len(buses)):
         Y_5[n, n] = -sum(Y_5[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
 # --> correct
 
+
 # 7.4.8: Computation of nonlinear load harmonic currents
 # in this case independent of alpha and beta
-def I_inj(V, bus, alpha, beta):
-    g_r = 0.3*(V.loc[1, bus]["V_m"])
+def I_inj(v, bus, alpha, beta):
+    i_inj = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
+            0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
+    return i_inj
 
+
+buses.rename({"P": "P_1", "Q": "Q_1"}, axis=1, inplace=True)
+buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
+
+# phasor calculations not understood (?), everything only for bus4
+epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])  #
+gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
+# fundamental "device currents" (why different to injection?)
+G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
+             (V.at[(1, "bus4"), "V_m"] *
+              np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
+G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
+             (V.at[(1, "bus4"), "V_m"] *
+              np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
+I_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
+
+# now for h = 5
+I_bus4_5 = I_inj(V, "bus4", 0, 0)  # in algebraic form called "g"
+epsilon_5 = np.arctan(abs(I_bus4_5.imag)/abs(I_bus4_5.real))
+gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
+G_bus4_5_r = abs(I_bus4_5)*np.cos(gamma_5)
+G_bus4_5_i = abs(I_bus4_5)*np.sin(gamma_5)
+# --> correct (except rounding and phase sign)
+
+# test
+P_4_1 = abs(I_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
+        np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
+Q_4_1 = abs(I_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
+        np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
+P_4_1 - buses.at[(3, "P_1")]/pu_factor
+Q_4_1 - buses.at[(3, "Q_1")]/pu_factor  # very small, as should be
+
+P_4_5 = abs(I_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
+        np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
+Q_4_5 = abs(I_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
+        np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
+
+# total injected powers at bus4
+P_4_t = P_4_1 + P_4_5
+Q_4_t = Q_4_1 + Q_4_5
 
 # 7.4.9: Evaluation of harmonic mismatch vector
 
