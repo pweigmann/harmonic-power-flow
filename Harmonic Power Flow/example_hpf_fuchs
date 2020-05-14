@@ -238,7 +238,40 @@ Q_4_5 = abs(I_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
 P_4_t = P_4_1 + P_4_5
 Q_4_t = Q_4_1 + Q_4_5
 
-# 7.4.9: Evaluation of harmonic mismatch vector
+# 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
+# dW for the linear buses (analog to dm in 7.3.6):
+V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
+# --> almost zero, which makes sense because it was minimized during fund. pf
+# but Fuchs has bigger values (rounding?)
+
+# dW for nonlinear buses needs harmonic line powers
+V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
+F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
+         np.array(V_5*np.conj(Y_5.dot(V_5)))
+dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
+# final dW
+dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag,
+               dW_nlin.real, dW_nlin.imag])
+
+# current mismatches dI
+# fundamental current difference only for nonlinear bus
+dI_1 = Y_f.dot(V_f)[3] + I_bus4_1  # almost zero, different to Fuchs
+
+# harmonic currents for all buses (including slack)
+dI_5_nlin = Y_5.dot(V_5)[3] + I_bus4_5  # not zero, almost same as Fuchs
+dI_5_lin = Y_5.dot(V_5)[:3]
+
+# final dI
+dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
+               dI_5_lin[1].real, dI_5_lin[1].imag,
+               dI_5_lin[2].real, dI_5_lin[2].imag,
+               dI_5_nlin.real, dI_5_nlin.imag,
+               dI_1.real, dI_1.imag])
+
+# final harmonic mismatch vector
+dM = np.append(dW, dI)
+err_h = np.linalg.norm(dM, np.inf)
 
 # 7.4.10: Evaluation of harmonic and fundamental Jacobian
 
