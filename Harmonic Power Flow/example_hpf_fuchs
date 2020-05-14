@@ -273,6 +273,10 @@ dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
 dM = np.append(dW, dI)
 err_h = np.linalg.norm(dM, np.inf)
 
-# 7.4.10: Evaluation of harmonic and fundamental Jacobian
+# 7.4.10: Evaluation of harmonic and fundamental Jacobian (dim = 16x16)
+# divided into submatrices J1, J5, Y11, Y55, G15, G51, G11, G55, H1, H5
+J1 = J  # might not be the one of the last iteration, fix in the future
+dSdV_5 = 0
+dSdt_5 = 0
 
 # 7.4.11: Computation of correction bus vector and iterating
