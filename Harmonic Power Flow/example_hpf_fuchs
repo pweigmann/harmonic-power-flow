@@ -192,10 +192,10 @@ for n in range(len(buses)):
 
 # 7.4.8: Computation of nonlinear load harmonic currents
 # in this case independent of alpha and beta
-def I_inj(v, bus, alpha, beta):
-    i_inj = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
-            0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
-    return i_inj
+def g(v, bus):
+    g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
+        0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
+    return g
 
 
 buses.rename({"P": "P_1", "Q": "Q_1"}, axis=1, inplace=True)
@@ -204,7 +204,7 @@ buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 # phasor calculations not understood (?), everything only for bus4
 epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])  #
 gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
-# fundamental "device currents" (why different to injection?)
+# fundamental "device currents" (why different to injection g(?))
 G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
              (V.at[(1, "bus4"), "V_m"] *
               np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
@@ -214,7 +214,7 @@ G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
 I_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
-I_bus4_5 = I_inj(V, "bus4", 0, 0)  # in algebraic form called "g"
+I_bus4_5 = g(V, "bus4")  # in algebraic form called "g"
 epsilon_5 = np.arctan(abs(I_bus4_5.imag)/abs(I_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
 G_bus4_5_r = abs(I_bus4_5)*np.cos(gamma_5)
@@ -275,8 +275,39 @@ err_h = np.linalg.norm(dM, np.inf)
 
 # 7.4.10: Evaluation of harmonic and fundamental Jacobian (dim = 16x16)
 # divided into submatrices J1, J5, Y11, Y55, G15, G51, G11, G55, H1, H5
-J1 = J  # might not be the one of the last iteration, fix in the future
-dSdV_5 = 0
-dSdt_5 = 0
+J1 = J  # might not be the one of the last iteration, fix!
+
+# J5
+# based on manually calculated derivatives
+# only done for bus4 as it's the only nonlinear one in this case, automate!
+# only correct because harmonic phases are 0 for now, needs update!
+# bus1
+dSdV1_5 = V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[0, 3])  # real part correct!
+dSdt1_5 = -1j*V.loc[(5, "bus4"), "V_m"] *\
+          np.conj(V.loc[(5, "bus1"), "V_m"]*Y_5[0, 3])  # both parts correct!
+# bus2
+dSdV2_5 = V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[1, 3])  # both parts correct!
+dSdt2_5 = -1j*V.loc[(5, "bus4"), "V_m"] *\
+          np.conj(V.loc[(5, "bus2"), "V_m"]*Y_5[1, 3])  # both parts correct!
+# bus3
+dSdV3_5 = V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[2, 3])  # both parts correct!
+dSdt3_5 = -1j*V.loc[(5, "bus4"), "V_m"] *\
+          np.conj(V.loc[(5, "bus3"), "V_m"]*Y_5[2, 3])  # both parts correct!
+# bus4 (diagonal entry, more complicated)
+# first: build derivatives of current injections g:
+dgdt_5 = 0.9j*V.loc[(5, "bus4"), "V_m"]**2 *\
+         np.exp(3j*V.loc[(5, "bus4"), "V_p"])
+dgdV_5 = 0.6*V.loc[(5, "bus4"), "V_m"] *\
+         np.exp(3j*V.loc[(5, "bus4"), "V_p"])
+# it seems Fuchs doesn't consider derivatives of g, why?
+dSdV4_5 = dgdV_5*V_5[3] + g(V, "bus4")*np.exp(1j*V.loc[(5, "bus4"), "V_p"]) +\
+          V.loc[(5, "bus1"), "V_m"]*np.conj(Y_5[0, 3]) +\
+          V.loc[(5, "bus2"), "V_m"]*np.conj(Y_5[1, 3]) +\
+          V.loc[(5, "bus3"), "V_m"]*np.conj(Y_5[2, 3]) +\
+          2*V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[3, 3])  # correct without g
+dSdt4_5 = dgdt_5*V_5[3] + g(V, "bus4")*1j*V_5[3] +\
+          1j*V_5[3]*np.conj(Y_5[0, 3]*V_5[0]) +\
+          1j*V_5[3]*np.conj(Y_5[1, 3]*V_5[1]) +\
+          1j*V_5[3]*np.conj(Y_5[2, 3]*V_5[2])  # correct without g
 
 # 7.4.11: Computation of correction bus vector and iterating
