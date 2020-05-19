@@ -5,6 +5,10 @@
 # to computer based complex calculations in algebraic form. Also uses different
 # ordering of variables as pypsa and rounds numbers after 3 decimals.
 
+# TODO:
+#  Unify use of V.loc vs. V_h
+#  Generalize for arbitrary buses
+
 # Author: Pascal Weigmann, p.weigmann@posteo.de
 
 import numpy as np
@@ -55,8 +59,8 @@ for k in range(0, lines.shape[0]):
 for n in range(0, len(buses)):
     for m in range(0, len(buses)):
         if n == m:
-            # won't work if there are more than two lines per bus
-            # simpler to use sum of values calculated above
+            # FIXME: won't work if there are more than two lines per bus
+            #  simpler to use sum of values calculated above
             Y_f[n, m] = 1/(lines[lines.fromID == n+1].R.iloc[0] +
                            1j*lines[lines.fromID == n+1].X.iloc[0]) +\
                         (1/(lines[lines.toID == n+1].R.iloc[0] +
@@ -124,7 +128,7 @@ V.loc[1, 'V_p'][1:] = x_new[::2]
 V.loc[1, 'V_m'][1:] = x_new[1::2]
 
 n_iter = 0
-# calculate again: f, J  (loop shouldn't start here, but lazy)
+# calculate again: f, J  (loop shouldn't start here, but lazy, FIXME)
 while err > 0.0001 and n_iter < 100:
     n_iter += 1
     V.loc[1, 'V_p'][1:] = x_new[::2]
@@ -167,10 +171,11 @@ print(str(n_iter) + " iterations")
 
 # HARMONIC POWER FLOW, only 5th harmonic considered
 h = 5
+
 # 7.4.7: Computation of harmonic admittance matrix
 # Swing bus has different representation - fundamental vs. harmonic (p. 288)
 # Fundamental admittance matrix from fundamental power flow:
-Y_f = Y_f  # might be included in a multi-index later
+Y_f = Y_f  # ToDo: might be included in a multi-index later
 
 # Harmonic admittance matrix, as fund. but reactance scales with harmonic no.
 Y_5 = np.zeros([len(buses), len(buses)], dtype=complex)
@@ -201,8 +206,9 @@ def g(v, bus):
 buses.rename({"P": "P_1", "Q": "Q_1"}, axis=1, inplace=True)
 buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 
-# phasor calculations not understood (?), everything only for bus4
-epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])  #
+# TODO: phasor calculations not understood (?, see 7.4.8),
+# everything only for bus4
+epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
 gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
 # fundamental "device currents" (why different to injection g(?))
 G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
@@ -211,27 +217,27 @@ G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
 G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
              (V.at[(1, "bus4"), "V_m"] *
               np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-I_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
+G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
-I_bus4_5 = g(V, "bus4")  # in algebraic form called "g"
-epsilon_5 = np.arctan(abs(I_bus4_5.imag)/abs(I_bus4_5.real))
+G_bus4_5 = g(V, "bus4")  # difference between G and g?
+epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-G_bus4_5_r = abs(I_bus4_5)*np.cos(gamma_5)
-G_bus4_5_i = abs(I_bus4_5)*np.sin(gamma_5)
+G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)
+G_bus4_5_i = abs(G_bus4_5)*np.sin(gamma_5)
 # --> correct (except rounding and phase sign)
 
 # test
-P_4_1 = abs(I_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
+P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
         np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
-Q_4_1 = abs(I_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
+Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
         np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
 P_4_1 - buses.at[(3, "P_1")]/pu_factor
 Q_4_1 - buses.at[(3, "Q_1")]/pu_factor  # very small, as should be
 
-P_4_5 = abs(I_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
+P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
         np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
-Q_4_5 = abs(I_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
+Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
         np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
 
 # total injected powers at bus4
@@ -256,10 +262,10 @@ dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag,
 
 # current mismatches dI
 # fundamental current difference only for nonlinear bus
-dI_1 = Y_f.dot(V_f)[3] + I_bus4_1  # almost zero, different to Fuchs
+dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
 
 # harmonic currents for all buses (including slack)
-dI_5_nlin = Y_5.dot(V_5)[3] + I_bus4_5  # not zero, almost same as Fuchs
+dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, almost same as Fuchs
 dI_5_lin = Y_5.dot(V_5)[:3]
 
 # final dI
@@ -275,9 +281,11 @@ err_h = np.linalg.norm(dM, np.inf)
 
 # 7.4.10: Evaluation of harmonic and fundamental Jacobian (dim = 16x16)
 # divided into submatrices J1, J5, Y11, Y55, G15, G51, G11, G55, H1, H5
+
+# J1 (dim = 2(n-1) x 2(n-1))
 J1 = J  # might not be the one of the last iteration, fix!
 
-# J5
+# J5 (dim = 2(n-1) x 2n)
 # based on manually calculated derivatives
 # only done for bus4 as it's the only nonlinear one in this case, automate!
 # only correct because harmonic phases are 0 for now, needs update!
@@ -295,19 +303,82 @@ dSdt3_5 = -1j*V.loc[(5, "bus4"), "V_m"] *\
           np.conj(V.loc[(5, "bus3"), "V_m"]*Y_5[2, 3])  # both parts correct!
 # bus4 (diagonal entry, more complicated)
 # first: build derivatives of current injections g:
+# dgdt_5 = 0.9j*V.loc[(5, "bus4"), "V_m"]**2 *\
+#         np.exp(3j*V.loc[(5, "bus4"), "V_p"])
+# dgdV_5 = 0.6*V.loc[(5, "bus4"), "V_m"] *\
+#         np.exp(3j*V.loc[(5, "bus4"), "V_p"])
+# it seems Fuchs doesn't consider derivatives of g, why?
+# dSdV4_5 = dgdV_5*V_5[3] + g(V, "bus4")*np.exp(1j*V.loc[(5, "bus4"), "V_p"]) +\
+#          V.loc[(5, "bus1"), "V_m"]*np.conj(Y_5[0, 3]) +\
+#          V.loc[(5, "bus2"), "V_m"]*np.conj(Y_5[1, 3]) +\
+#          V.loc[(5, "bus3"), "V_m"]*np.conj(Y_5[2, 3]) +\
+#          2*V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[3, 3])  # correct without g
+# dSdt4_5 = dgdt_5*V_5[3] + g(V, "bus4")*1j*V_5[3] +\
+#          1j*V_5[3]*np.conj(Y_5[0, 3]*V_5[0]) +\
+#          1j*V_5[3]*np.conj(Y_5[1, 3]*V_5[1]) +\
+#          1j*V_5[3]*np.conj(Y_5[2, 3]*V_5[2])  # correct without g
+
+# as done by Fuchs
+dSdV4_5 = V.loc[(5, "bus1"), "V_m"]*np.conj(Y_5[0, 3]) +\
+          V.loc[(5, "bus2"), "V_m"]*np.conj(Y_5[1, 3]) +\
+          V.loc[(5, "bus3"), "V_m"]*np.conj(Y_5[2, 3]) +\
+          2*V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[3, 3])
+dSdt4_5 = 1j*V_5[3]*np.conj(Y_5[0, 3]*V_5[0]) +\
+          1j*V_5[3]*np.conj(Y_5[1, 3]*V_5[1]) +\
+          1j*V_5[3]*np.conj(Y_5[2, 3]*V_5[2])
+
+# putting it all together
+J5 = np.concatenate((np.zeros((4, 8)),
+     np.array([[dSdt1_5.real, dSdV1_5.real, dSdt2_5.real, dSdV2_5.real,
+                dSdt3_5.real, dSdV3_5.real, dSdt4_5.real, dSdV4_5.real],
+               [dSdt1_5.imag, dSdV1_5.imag, dSdt2_5.imag, dSdV2_5.imag,
+                dSdt3_5.imag, dSdV3_5.imag, dSdt4_5.imag, dSdV4_5.imag]])))
+
+# G51 (dim = 8 x 6)
+# derivatives of current injections (wrt fund)
+dgdt_1 = 0.9j*V.loc[(1, "bus4"), "V_m"]**3*np.exp(3j*V.loc[(1, "bus4"), "V_p"])
+dgdV_1 = 0.9*V.loc[(1, "bus4"), "V_m"]**2*np.exp(3j*V.loc[(1, "bus4"), "V_p"])
+G51 = np.zeros((8, 6))
+G51[6, 4] = dgdt_1.real
+G51[7, 4] = dgdt_1.imag
+G51[6, 5] = dgdV_1.real
+G51[7, 5] = dgdV_1.imag  # correct except rounding
+
+# Y55 + G55 (dim = 8 x 8)
+# derivatives of current injections (wrt h=5)
 dgdt_5 = 0.9j*V.loc[(5, "bus4"), "V_m"]**2 *\
          np.exp(3j*V.loc[(5, "bus4"), "V_p"])
 dgdV_5 = 0.6*V.loc[(5, "bus4"), "V_m"] *\
          np.exp(3j*V.loc[(5, "bus4"), "V_p"])
-# it seems Fuchs doesn't consider derivatives of g, why?
-dSdV4_5 = dgdV_5*V_5[3] + g(V, "bus4")*np.exp(1j*V.loc[(5, "bus4"), "V_p"]) +\
-          V.loc[(5, "bus1"), "V_m"]*np.conj(Y_5[0, 3]) +\
-          V.loc[(5, "bus2"), "V_m"]*np.conj(Y_5[1, 3]) +\
-          V.loc[(5, "bus3"), "V_m"]*np.conj(Y_5[2, 3]) +\
-          2*V.loc[(5, "bus4"), "V_m"]*np.conj(Y_5[3, 3])  # correct without g
-dSdt4_5 = dgdt_5*V_5[3] + g(V, "bus4")*1j*V_5[3] +\
-          1j*V_5[3]*np.conj(Y_5[0, 3]*V_5[0]) +\
-          1j*V_5[3]*np.conj(Y_5[1, 3]*V_5[1]) +\
-          1j*V_5[3]*np.conj(Y_5[2, 3]*V_5[2])  # correct without g
+Y55 = np.zeros((8, 8))
+G55 = np.zeros((8, 8))
+
+# fill in elements, see calculations on paper
+for i in range(0, 4):
+    for k in range(0, 4):
+        Y55[2*i, 2*k] = (1j*Y_5[i, k] * V_5[k]).real
+        Y55[2*i+1, 2*k] = (1j*Y_5[i, k] * V_5[k]).imag
+        Y55[2*i, 2*k+1] = (Y_5[i, k] *
+                           np.exp(1j*V.loc[(5, "bus"+str(k+1)), "V_p"])).real
+        Y55[2*i+1, 2*k+1] = (Y_5[i, k] *
+                             np.exp(1j*V.loc[(5, "bus"+str(k+1)), "V_p"])).imag
+        # could be outside, but for generalization later better here
+        if i == 3 and k == 3:
+            G55[2*i, 2*k] = dgdt_5.real
+            G55[2*i+1, 2*k] = dgdt_5.imag  # different
+            G55[2*i, 2*k+1] = dgdV_5.real
+            G55[2*i+1, 2*k+1] = dgdV_5.imag
+# --> correct except 3 elements, mistakes most probably by Fuchs
+
+
+
+# Y11 + G11 (dim = 2 x 6)
+Y11 = 0
+epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
+gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
+
+
+
+
 
 # 7.4.11: Computation of correction bus vector and iterating
