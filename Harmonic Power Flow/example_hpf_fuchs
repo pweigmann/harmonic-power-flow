@@ -282,10 +282,10 @@ err_h = np.linalg.norm(dM, np.inf)
 # 7.4.10: Evaluation of harmonic and fundamental Jacobian (dim = 16x16)
 # divided into submatrices J1, J5, Y11, Y55, G15, G51, G11, G55, H1, H5
 
-# J1 (dim = 2(n-1) x 2(n-1))
+# J1 (dim = 6 x 6)
 J1 = J  # might not be the one of the last iteration, fix!
 
-# J5 (dim = 2(n-1) x 2n)
+# J5 (dim = 6 x 8)
 # based on manually calculated derivatives
 # only done for bus4 as it's the only nonlinear one in this case, automate!
 # only correct because harmonic phases are 0 for now, needs update!
@@ -370,15 +370,53 @@ for i in range(0, 4):
             G55[2*i+1, 2*k+1] = dgdV_5.imag
 # --> correct except 3 elements, mistakes most probably by Fuchs
 
-
-
 # Y11 + G11 (dim = 2 x 6)
-Y11 = 0
 epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
-gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
+gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase, bus 4
 
+Y11 = np.zeros((2, 6))
+for k in range(0, 3):
+    Y11[0, 2*k] = (1j*Y_f[3, k+1]*V_f[k+1]).real
+    Y11[1, 2*k] = (1j*Y_f[3, k+1]*V_f[k+1]).imag
+    Y11[0, 2*k+1] = (Y_f[3, k+1] *
+                     np.exp(1j*V.loc[(1, "bus"+str(k+2)), "V_p"])).real
+    Y11[1, 2*k+1] = (Y_f[3, k+1] *
+                     np.exp(1j*V.loc[(1, "bus"+str(k+2)), "V_p"])).imag
+# --> correct!
 
+G11 = np.zeros((2, 6))
+# Fuchs doesn't really build derivative, thus results differ
+dIdt_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]*np.exp(1j*gamma_1) * \
+         2*np.sin(gamma_1 - V.loc[(1, "bus4"), "V_p"]) /\
+         (np.cos(2*gamma_1 - 2*V.loc[(1, "bus4"), "V_p"]) + 1)
+dIdV_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]**2 * np.exp(1j*gamma_1) / \
+         np.cos(V.loc[(1, "bus4"), "V_p"] - gamma_1)  # correct
+G11[0, 4] = dIdt_1.real
+G11[1, 4] = dIdt_1.imag
+G11[0, 5] = dIdV_1.real
+G11[1, 5] = dIdV_1.imag
 
+# G15 (dim = 2 x 8)
+G15 = np.zeros((2, 8))  # this was easy
 
+# assembling YG (dim = 10 x 14)
+YG = np.block([
+    [G51, Y55+G55],
+    [Y11+G11, G15]
+])
+
+# H5 (dim = 8 x 2, solution independent of H matrices)
+H5 = np.zeros((8, 2))
+
+# H1 (dim = 2 x 2, random values to avoid unsolvable system)
+H1 = np.array([[1, 2], [3, 4]])
+
+# assembling J5 (dim 16 x 16)
+J_5 = np.block([
+    [J1, J5, np.zeros((6, 2))],
+    [G51, Y55+G55, H5],
+    [Y11+G11, G15, H1]
+])
+# --> correct!
 
 # 7.4.11: Computation of correction bus vector and iterating
