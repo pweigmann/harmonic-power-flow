@@ -213,7 +213,8 @@ U = np.append(UV[0, 2:], [0, 0])  # append control angles, cut off V_f of slack
 # everything only for bus4
 epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
 gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
-# fundamental "device currents" (why different to injection g(?))
+# fundamental device currents. G is referred to swing bus, g referred to bus4.
+# G and g are the same if gamma is small.
 G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
              (V.at[(1, "bus4"), "V_m"] *
               np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
