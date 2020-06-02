@@ -59,8 +59,8 @@ for k in range(0, lines.shape[0]):
 for n in range(0, len(buses)):
     for m in range(0, len(buses)):
         if n == m:
-            # FIXME: won't work if there are more than two lines per bus
-            #  simpler to use sum of values calculated above
+            # won't work if there are more than two lines per bus
+            # simpler to use sum of values calculated above (fixed in new file)
             Y_f[n, m] = 1/(lines[lines.fromID == n+1].R.iloc[0] +
                            1j*lines[lines.fromID == n+1].X.iloc[0]) +\
                         (1/(lines[lines.toID == n+1].R.iloc[0] +
