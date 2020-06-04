@@ -19,7 +19,7 @@ buses = pd.DataFrame(np.array([[1, "slack", "generator", 0, 0, 1000, 0.0001],
 lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                [2, 2, 3, 0.02, 0.08],
                                [3, 3, 4, 0.01, 0.02],
-                               [4, 4, 5, 0.01, 0.02]]),
+                               [4, 4, 1, 0.01, 0.02]]),
                      columns=["ID", "fromID", "toID", "R", "X"])
 
 
@@ -51,11 +51,44 @@ def init_voltages(buses, harmonics):
 
 
 def init_fund_state_vec(V):
-    # following pypsa instead of Fuchs by not alternating between angle and magn
+    # following PyPSA convention instead of Fuchs by not alternating between
+    # voltage angle and magnitude
     x = np.array(V.loc[(1, "V_a")][1:], V.loc[(1, "V_m")][1:])
     return x
 
 
-def init_fund_mismatch(V):
-    f =
+def init_fund_mismatch(buses, V, Y):
+    V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    S = buses["P1"] + 1j*buses["Q1"]
+    mismatch = np.array(V_vec*np.conj(Y.dot(V_vec)) - S)
+    # again following PyPSA conventions
+    f = np.r_[mismatch.real[1:], mismatch.imag[1:]]
     return f
+
+
+def build_jacobian(V, Y):
+    V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    I_diag = np.diag(Y.dot(V_vec))
+    V_diag = np.diag(V_vec)
+    V_diag_norm = np.diag(V_vec/abs(V_vec))
+
+    dSdt = 1j*V_diag.dot(np.conj(I_diag - Y.dot(V_diag)))
+
+    dSdV = V_diag_norm.dot(np.conj(I_diag)) \
+           + V_diag.dot(np.conj(Y.dot(V_diag_norm)))
+
+    dPdt = dSdt[1:, 1:].real
+    dPdV = dSdV[1:, 1:].real
+    dQdt = dSdt[1:, 1:].imag
+    dQdV = dSdV[1:, 1:].imag
+    J = np.vstack([np.hstack([dPdt, dPdV]), np.hstack([dQdt, dQdV])])
+
+    return J
+
+
+Y1 = build_admittance_matrix(buses, lines)
+V1 = init_voltages(buses, HARMONICS)
+x1 = init_fund_state_vec(V1)
+f1 = init_fund_mismatch(buses, V1, Y1)
+J1 = build_jacobian(V1, Y1)
+
