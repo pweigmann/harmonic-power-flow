@@ -126,7 +126,7 @@ V.loc[1, 'V_m'][1:] = x_new[1::2]
 
 n_iter = 0
 # calculate again: f, J  (loop shouldn't start here, but lazy, FIXME)
-while err > 0.0001 and n_iter < 100:
+while err > 1e-6 and n_iter < 2:
     n_iter += 1
     V.loc[1, 'V_p'][1:] = x_new[::2]
     V.loc[1, 'V_m'][1:] = x_new[1::2]

@@ -61,8 +61,8 @@ while err > 10e-2 and n_iter < max_iter:
     dSdt = 1j*V_diag.dot(np.conj(np.diag(Y_f.dot(V)) - Y_f.dot(V_diag)))
 
     # delta S/delta V matrix (not yet calculated by hand, also wrong?)
-    dSdV = V_diag_norm.dot(np.conj(Y_f.dot(V))) + \
-           V_diag.dot(np.conj(Y_f.dot(V_diag_norm)))
+    dSdV = V_diag_norm.dot(np.conj(Y_f.dot(V))) \
+           + V_diag.dot(np.conj(Y_f.dot(V_diag_norm)))
     J00 = dSdt[1:, 1:].real
     J01 = dSdV[1:, 1:].real
     J10 = dSdt[1:, 1:].imag
