@@ -219,6 +219,7 @@ G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
 G_bus4_5 = g(V, "bus4")  # difference between G and g?
+# answer: g referred to bus4, G referred to swing bus
 epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
 G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)

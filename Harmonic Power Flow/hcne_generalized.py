@@ -5,10 +5,13 @@ import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import *
 import matplotlib.pyplot as plt
+import sys
+
+
 
 # global variables
 PU_FACTOR = 1000
-HARMONICS = [1]
+HARMONICS = [1, 5, 7]
 MAX_ITER_F = 30  # maybe better as argument of pf function
 THRESH_F = 1e-6
 
@@ -165,10 +168,34 @@ x1 = init_fund_state_vec(V1)
 f1, err1 = fund_mismatch(buses_fu, V1, Y1)
 V1, err1_t, n_converged = pf(V1, x1, f1, Y1, buses_fu)
 
+if HARMONICS == [1]:
+    pass
+    # exit()
 
-''' Functions for Harmonic Power Flow
+''' Harmonic Power Flow
+n buses total (i = 1, ..., n)
+slack bus is first bus (i = 1)
+m-1 linear buses (i = 1, ..., m-1)
+n-m+1 nonlinear buses (i = m, ..., n)
+K harmonics considered (excluding fundamental)
 '''
 
 
+def current_injections(busID, V, Y_N, I_N):
+    # TODO: import Norton parameters from file, depending on device
+    # busID, Y_N and I_N can all be passed/imported together
+    # dimensions need to fit, crop Y_N and I_N as necessary
+    V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
+    I_inj = I_N - spsolve(Y_N, V_h)
+    return I_inj
 
 
+def harmonic_mismatch(V, Y, buses):
+    # add all linear buses to dS except slack (# = m-2)
+    V_vec = 0
+    dS = buses_fu.P1[buses_fu["type"] != "nonlinear"][1:]/PU_FACTOR
+    + 1j*buses_fu.Q1[buses_fu["type"] != "nonlinear"][1:]/PU_FACTOR
+    dI_1 = Y*V_vec
+
+    f_h = dS
+    return f_h
