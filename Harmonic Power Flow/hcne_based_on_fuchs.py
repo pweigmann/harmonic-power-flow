@@ -171,9 +171,6 @@ h = 5
 
 # 7.4.7: Computation of harmonic admittance matrix
 # Swing bus has different representation - fundamental vs. harmonic (p. 288)
-# Fundamental admittance matrix from fundamental power flow:
-Y_f = Y_f  # ToDo: might be included in a multi-index later
-
 # Harmonic admittance matrix, as fund. but reactance scales with harmonic no.
 Y_5 = np.zeros([len(buses), len(buses)], dtype=complex)
 # non-diagonal elements
@@ -371,7 +368,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     # 7.4.11: Computation of correction bus vector and iterating
     J_5_inv = np.linalg.inv(J_5)
 
-    U_new = U - J_5_inv.dot(dM)  # "solve" function better than inverting
+    U_new = U - J_5_inv.dot(dM)  # "spsolve" better than inverting
 
     # update V
     V["V_p"][1:] = U_new[:14:2]

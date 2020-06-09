@@ -8,9 +8,22 @@ import matplotlib.pyplot as plt
 
 # global variables
 PU_FACTOR = 1000
-HARMONICS = [1, 5, 7, 11]
+HARMONICS = [1]
 MAX_ITER_F = 30  # maybe better as argument of pf function
 THRESH_F = 1e-6
+
+# help definitions
+idx = pd.IndexSlice
+
+
+# functions to change from algebraic to polar form
+def P2A(radii, angles):
+    return radii * np.exp(1j*angles)
+
+
+def A2P(x):
+    return abs(x), np.angle(x)
+
 
 # infrastructure (TODO: import infrastructure from file)
 buses_fu = pd.DataFrame(np.array([[1, "slack", "generator", 0, 0, 1000, 0.0001],
@@ -71,7 +84,8 @@ def init_voltages(buses, harmonics):
     V.sort_index(inplace=True)
     # set initial voltage magnitudes (in p.u.)
     V.loc[1, "V_m"] = 1
-    V.loc[harmonics[1]:, "V_m"] = 0.1
+    if len(harmonics) > 1:
+        V.loc[harmonics[1]:, "V_m"] = 0.1
     return V
 
 
@@ -112,13 +126,13 @@ def build_jacobian(V, Y):
 
 
 def update_fund_state_vec(J, x, f):
-    x_new = x - spsolve(J, f)  # PyPSA has "-" instead of "+", important?
+    x_new = x - spsolve(J, f)  # use sparse matrices later
     return x_new
 
 
-def update_voltages(V, x):
-    V.loc[1, "V_a"][1:] = x[:int(len(x)/2)]
-    V.loc[1, "V_m"][1:] = x[int(len(x)/2):]
+def update_fund_voltages(V, x):
+    V.loc[idx[1, 1:], "V_a"] = x[:int(len(x)/2)]
+    V.loc[idx[1, 1:], "V_m"] = x[int(len(x)/2):]
     return V
 
 
@@ -129,14 +143,17 @@ def pf(V, x, f, Y, buses):
     while err > THRESH_F and n_iter_f < MAX_ITER_F:
         J = build_jacobian(V, Y)
         x = update_fund_state_vec(J, x, f)
-        V = update_voltages(V, x)
+        V = update_fund_voltages(V, x)
         f, err = fund_mismatch(buses, V, Y)
         err_t[n_iter_f] = err
         n_iter_f += 1
-
+    # plot convergence behaviour
     plt.plot(list(err_t.keys()), list(err_t.values()))
     print(V.loc[1])
-    print("Converged after " + str(n_iter_f) + " iterations.")
+    if n_iter_f < MAX_ITER_F:
+        print("Converged after " + str(n_iter_f) + " iterations.")
+    elif n_iter_f == MAX_ITER_F:
+        print("Maximum of " + str(n_iter_f) + " iterations reached.")
     return V, err_t, n_iter_f
 
 
