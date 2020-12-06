@@ -48,7 +48,7 @@ lines_fu = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
 
 
 def build_admittance_matrices(buses, lines, harmonics):
-    # initialize harmonic admittance matrices
+    # initialize empty harmonic admittance matrices
     iterables = [harmonics, buses.index.values]
     multi_idx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
     Y_all = pd.DataFrame(
@@ -56,7 +56,7 @@ def build_admittance_matrices(buses, lines, harmonics):
         index=multi_idx, columns=[buses.index.values], dtype="c16")
 
     # Harmonic admittance matrices
-    # reactance scales with harmonic no. (Fuchs p.598)
+    # reactance scales lin. with harmonic no. (Fuchs p.598) (good assumption?)
     for h in harmonics:
         Y = np.zeros([len(buses), len(buses)], dtype=complex)
         # non-diagonal elements
@@ -182,7 +182,7 @@ K harmonics considered (excluding fundamental)
 
 
 def current_injections(busID, V, Y_N, I_N):
-    # TODO: import Norton parameters from file, depending on device
+    # TODO: import Norton parameters from file, depending on type of device
     # busID, Y_N and I_N can all be passed/imported together
     # dimensions need to fit, crop Y_N and I_N as necessary
     V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
@@ -199,3 +199,4 @@ def harmonic_mismatch(V, Y, buses):
 
     f_h = dS
     return f_h
+

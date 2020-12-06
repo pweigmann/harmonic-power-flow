@@ -1,6 +1,6 @@
-# Copy paste of 4 Bus example of "classical" harmonic load power based on Fuchs
+# Copy paste of 4 Bus example of "classical" harmonic load power based on Fuchs.
 # Experiment to cut away "control parameters" alpha and beta for nonlinear
-# buses. Shorten dM, J_1, J_5 and U
+# buses thus shortening dM, J_1, J_5 and U.
 
 # TODO:
 #  remove unnecessary parts
@@ -24,7 +24,7 @@ def A2P(x):
     return abs(x), np.angle(x)
 
 
-# initialize voltage as multi-index DataFrame
+# initialize voltage as multi-index DataFrame, default: V = 1pu, V_h = 0.1pu
 iterables = [[1, 5], ["bus1", "bus2", "bus3", "bus4"]]
 multiIdx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
 V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
@@ -42,7 +42,7 @@ lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                [2, 2, 3, 0.02, 0.08],
                                [3, 3, 4, 0.01, 0.02],
                                [4, 4, 1, 0.01, 0.02]]),
-                     columns=["ID", "fromID", "toID", "R", "X"])
+                     columns=["ID", "fromID", "toID", "R", "X"])  # add dtype?
 
 # 7.3.5: construct Y_f
 Y_f = np.zeros([len(buses), len(buses)], dtype=complex)
@@ -63,7 +63,7 @@ for n in range(0, len(buses)):
                            1j*lines[lines.fromID == n+1].X.iloc[0]) +\
                         (1/(lines[lines.toID == n+1].R.iloc[0] +
                             1j*lines[lines.toID == n+1].X.iloc[0]))
-# change base for comparison to Fuchs
+# change to polar base for easier comparison to Fuchs example
 Y_f_p = np.zeros([len(buses), len(buses)], dtype=tuple)
 for n in range(0, len(buses)):
     for m in range(0, len(buses)):
@@ -72,14 +72,15 @@ for n in range(0, len(buses)):
 # --> correct!
 
 # 7.3.6: fundamental mismatch vector (doesn't contain slack bus)
-V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])  # build complex voltage vector
 V_init = pd.Series([])
+# arrangement following Fuchs' standard
 for n in range(0, len(V_f)):
     V_init = V_init.append(pd.Series([V_f[n].imag, V_f[n].real],
                                      index=["V_" + str(n) + "_theta",
                                      "V_" + str(n) + "_m"]))
-S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor
-dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
+S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor  # apparent power
+dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)  # power mismatch
 
 # Newton Raphson variables (without slack bus)
 x = V_init[2:]
@@ -88,7 +89,7 @@ for n in range(1, len(dm)):
     f[2*n-2] = dm[n].real
     f[2*n-1] = dm[n].imag
 
-err = np.linalg.norm(dm, np.Inf)  # max norm best choice?
+err = np.linalg.norm(dm, np.Inf)  # infinity norm best choice?
 
 # 7.3.7: fundamental Jacobian (calculated the way pypsa does)
 I_diag = np.diag(Y_f.dot(V_f))
@@ -104,7 +105,7 @@ dSdV = V_diag_norm.dot(np.conj(I_diag)) + \
 dPdV = dSdV.real
 dQdV = dSdV.imag
 
-# order of jacobian entries is differs from pypsa to fuchs, sorting:
+# order of jacobian entries differs from pypsa to fuchs, sorting:
 Jb = np.zeros((2*len(buses), 2*len(buses)))
 for n in range(len(buses)):
     for m in range(len(buses)):
@@ -118,15 +119,15 @@ J = Jb[2:, 2:]  # correct! (Fuchs, p.591)
 # 7.3.8: calculate the inverse of the Jacobian
 J_inv = np.linalg.inv(J)
 
-# 7.3.10: compute correction vector + iterate
+# 7.3.10: compute correction vector + NR iteration
 x_new = x - J_inv.dot(f)
 # update voltage:
 V.loc[1, 'V_p'][1:] = x_new[::2]
 V.loc[1, 'V_m'][1:] = x_new[1::2]
 
 n_iter = 0
-# calculate again: f, J  (loop shouldn't start here, but lazy, FIXME)
-while err > 1e-6 and n_iter < 2:
+# with new V: calculate again f, J  (loop probably shouldn't start here, FIXME)
+while err > 1e-6 and n_iter < 100:
     n_iter += 1
     V.loc[1, 'V_p'][1:] = x_new[::2]
     V.loc[1, 'V_m'][1:] = x_new[1::2]
@@ -163,7 +164,7 @@ while err > 1e-6 and n_iter < 2:
     J_inv = np.linalg.inv(J)
     x_new = x - J_inv.dot(f)
     print("error: " + str(err))
-print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, strange
+print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, why?
 print(str(n_iter) + " iterations")
 
 # HARMONIC POWER FLOW, only 5th harmonic considered
@@ -219,7 +220,7 @@ G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
 G_bus4_5 = g(V, "bus4")  # difference between G and g?
-# answer: g referred to bus4, G referred to swing bus
+# answer: g refers to bus4, G refers to swing bus
 epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
 G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)
@@ -455,7 +456,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     print("error_h: " + str(err_h))
     n_iter_h += 1
 
-for i in V.loc[5].index:
+for i in V.loc[5].index:  # why did I do this?
     V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_p"]))
 
 print("ended after " + str(n_iter_h) + " iterations")
