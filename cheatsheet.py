@@ -77,11 +77,10 @@ V.loc[pd.IndexSlice[:, 'bus1'], :]
 V.groupby(["harmonic"]).mean()
 
 
-
 # Matrix multiplication
-A = np.array([[1,2],[3,4]])
-B = np.array([[5,0],[0,8]])
-Csp = csr_matrix([[5,0],[0,8]])  # sparse matrix
+A = np.array([[1, 2], [3, 4]])
+B = np.array([[5, 0], [0, 8]])
+Csp = csr_matrix([[5, 0], [0, 8]])  # sparse matrix
 
 # element wise multiplication
 A * B
@@ -90,8 +89,8 @@ A * B
 A.dot(B)
 
 # sparse multiplication is matrix-multiplication!
-A*Csp
+A * Csp
 
-# this returns matrix of sparse matrices
+# this returns matrix of sparse matrices!
 A.dot(Csp)
 

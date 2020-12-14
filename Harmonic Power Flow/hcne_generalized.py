@@ -8,14 +8,13 @@ import matplotlib.pyplot as plt
 import sys
 
 
-
 # global variables
 PU_FACTOR = 1000
 HARMONICS = [1, 5, 7]
 MAX_ITER_F = 30  # maybe better as argument of pf function
 THRESH_F = 1e-6
 
-# help definitions
+# helper definitions
 idx = pd.IndexSlice
 
 
@@ -85,7 +84,7 @@ def init_voltages(buses, harmonics):
     V = pd.DataFrame(np.zeros((len(harmonics) * len(buses), 2)),
                      index=multi_idx, columns=["V_m", "V_a"])
     V.sort_index(inplace=True)
-    # set initial voltage magnitudes (in p.u.)
+    # set standard initial voltage magnitudes (in p.u.)
     V.loc[1, "V_m"] = 1
     if len(harmonics) > 1:
         V.loc[harmonics[1]:, "V_m"] = 0.1

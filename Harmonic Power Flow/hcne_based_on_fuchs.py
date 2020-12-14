@@ -121,9 +121,7 @@ J_inv = np.linalg.inv(J)
 
 # 7.3.10: compute correction vector + NR iteration
 x_new = x - J_inv.dot(f)
-# update voltage:
-V.loc[1, 'V_p'][1:] = x_new[::2]
-V.loc[1, 'V_m'][1:] = x_new[1::2]
+
 
 n_iter = 0
 # with new V: calculate again f, J  (loop probably shouldn't start here, FIXME)
@@ -132,7 +130,7 @@ while err > 1e-6 and n_iter < 100:
     V.loc[1, 'V_p'][1:] = x_new[::2]
     V.loc[1, 'V_m'][1:] = x_new[1::2]
     V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
-    dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
+    dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)  # recalculate dm
     x = x_new  # update x
     for n in range(1, len(dm)):  # update f
         f[2*n-2] = dm[n].real
@@ -191,22 +189,23 @@ for n in range(len(buses)):
 
 
 # 7.4.8: Computation of nonlinear load harmonic currents
+# Fuchs' non-linear device parameters alpha and beta are zero in this example
 # TODO: this will be replaced by Norton Equivalent calculations,
 def g(v, bus):
     g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
         0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
     return g
 
-
 buses.rename({"P": "P_1", "Q": "Q_1"}, axis=1, inplace=True)
 buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 
 # start iteration here?
+# U as on p.280, eq. (7-93)
 UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))  # create U by rearranging V
 U = UV[0, 2:]  # without control angles, cut off V_f of slack
 
 # everything only for bus4
-# this whole part might not be needed anymore
+# this whole part might not be needed when not using alpha, beta
 epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
 gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
 # fundamental "device currents" (why different to injection g(?))
@@ -254,7 +253,7 @@ V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
 F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
          np.array(V_5*np.conj(Y_5.dot(V_5)))
 dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
-# final dW (excluding dW_nlin)
+# final dW (excluding dW_nlin eq. (7-100) on p. 281)
 dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag])
 
 # current mismatches dI (these should stay the same)
@@ -282,7 +281,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     # J1 (dim = 4 x 6)
     J1 = J[:4, :]
     # J5 (dim = 4 x 8)
-    # now just zeros
+    # without nonlinear power balance now just zeros
     J5 = np.zeros((4, 8))
 
     # G51 (dim = 8 x 6)
@@ -456,7 +455,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     print("error_h: " + str(err_h))
     n_iter_h += 1
 
-for i in V.loc[5].index:  # why did I do this?
+for i in V.loc[5].index:  # why did I do this? --> phase < 2pi
     V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_p"]))
 
 print("ended after " + str(n_iter_h) + " iterations")
