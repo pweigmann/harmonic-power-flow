@@ -138,7 +138,7 @@ def update_fund_voltages(V, x):
     return V
 
 
-def pf(V, x, f, Y, buses):
+def pf(V, x, f, Y, buses, plt_convergence=False):
     n_iter_f = 0
     err = np.linalg.norm(f, np.Inf)
     err_t = {}
@@ -150,7 +150,8 @@ def pf(V, x, f, Y, buses):
         err_t[n_iter_f] = err
         n_iter_f += 1
     # plot convergence behaviour
-    plt.plot(list(err_t.keys()), list(err_t.values()))
+    if plt_convergence:
+        plt.plot(list(err_t.keys()), list(err_t.values()))
     print(V.loc[1])
     if n_iter_f < MAX_ITER_F:
         print("Converged after " + str(n_iter_f) + " iterations.")
@@ -159,13 +160,13 @@ def pf(V, x, f, Y, buses):
     return V, err_t, n_iter_f
 
 
-# fundamental power flow
+# fundamental power flow execution
 Y_h = build_admittance_matrices(buses_fu, lines_fu, HARMONICS)
-Y1 = np.array(Y_h.loc[1])
-V1 = init_voltages(buses_fu, HARMONICS)
-x1 = init_fund_state_vec(V1)
-f1, err1 = fund_mismatch(buses_fu, V1, Y1)
-V1, err1_t, n_converged = pf(V1, x1, f1, Y1, buses_fu)
+Y_1 = np.array(Y_h.loc[1])
+V_h = init_voltages(buses_fu, HARMONICS)
+x_1 = init_fund_state_vec(V_h)
+f_1, err1 = fund_mismatch(buses_fu, V_h, Y_1)
+V_h, err1_t, n_converged = pf(V_h, x_1, f_1, Y_1, buses_fu)
 
 if HARMONICS == [1]:
     pass
@@ -179,6 +180,10 @@ n-m+1 nonlinear buses (i = m, ..., n)
 K harmonics considered (excluding fundamental)
 '''
 
+def g(v, bus):
+    g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
+        0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
+    return g
 
 def current_injections(busID, V, Y_N, I_N):
     # TODO: import Norton parameters from file, depending on type of device
@@ -190,12 +195,19 @@ def current_injections(busID, V, Y_N, I_N):
 
 
 def harmonic_mismatch(V, Y, buses):
+    # power mismatch
     # add all linear buses to dS except slack (# = m-2)
     V_vec = 0
     dS = buses_fu.P1[buses_fu["type"] != "nonlinear"][1:]/PU_FACTOR
     + 1j*buses_fu.Q1[buses_fu["type"] != "nonlinear"][1:]/PU_FACTOR
+    # current mismatch
+    # at fundamental frequency for nonlinear buses
     dI_1 = Y*V_vec
+    # at harmonic frequencies for all buses
 
     f_h = dS
     return f_h
 
+# harmonic power flow execution
+
+f_h = harmonic_mismatch(V_h, Y_h, buses_fu)
