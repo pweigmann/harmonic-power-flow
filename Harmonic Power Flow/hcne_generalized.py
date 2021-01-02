@@ -12,7 +12,7 @@ import sys
 PU_FACTOR = 1000
 HARMONICS = [1, 5, 7]
 MAX_ITER_F = 30  # maybe better as argument of pf function
-THRESH_F = 1e-6
+THRESH_F = 1e-6  # error threshold of fundamental mismatch function
 
 # helper definitions
 idx = pd.IndexSlice
@@ -28,13 +28,27 @@ def A2P(x):
 
 
 # infrastructure (TODO: import infrastructure from file)
-buses_fu = pd.DataFrame(np.array([[1, "slack", "generator", 0, 0, 1000, 0.0001],
-                                  [2, "PQ", "lin_load_1", 100, 100, None, 0],
-                                  [3, "PQ", None, 0, 0, None, 0],
-                                  [4, "nonlinear", "nlin_load_1", 250, 100,
-                                   None, 0]]),
-                        columns=["ID", "type", "component", "P1",
-                                 "Q1", "S1", "X_shunt"])
+# S needed? what about X_shunt?
+# df for constant properties of buses
+buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
+                                  [2, "PQ", "lin_load_1", None, 0],
+                                  [3, "PQ", None, None, 0],
+                                  [4, "nonlinear", "nlin_load_1", None, 0]]),
+                           columns=["ID", "type", "component", "S", "X_shunt"])
+# generate columns for all frequencies
+columns = []
+for h in HARMONICS:
+    columns.append("P" + str(h))
+    columns.append("Q" + str(h))
+# df for real and reactive power of buses
+buses_power = pd.DataFrame(np.zeros((len(buses_const), 2*len(HARMONICS))),
+                           columns=columns)
+# insert fundamental powers, part of future import
+buses_power["P1"] = [0, 100, 0, 250]
+buses_power["Q1"] = [0, 100, 0, 100]
+# combined df for buses
+buses = pd.concat([buses_const, buses_power], axis=1)
+
 lines_fu = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                   [2, 2, 3, 0.02, 0.08],
                                   [3, 3, 4, 0.01, 0.02],
@@ -161,12 +175,12 @@ def pf(V, x, f, Y, buses, plt_convergence=False):
 
 
 # fundamental power flow execution
-Y_h = build_admittance_matrices(buses_fu, lines_fu, HARMONICS)
+Y_h = build_admittance_matrices(buses, lines_fu, HARMONICS)
 Y_1 = np.array(Y_h.loc[1])
-V_h = init_voltages(buses_fu, HARMONICS)
+V_h = init_voltages(buses, HARMONICS)
 x_1 = init_fund_state_vec(V_h)
-f_1, err1 = fund_mismatch(buses_fu, V_h, Y_1)
-V_h, err1_t, n_converged = pf(V_h, x_1, f_1, Y_1, buses_fu)
+f_1, err1 = fund_mismatch(buses, V_h, Y_1)
+V_h, err1_t, n_converged = pf(V_h, x_1, f_1, Y_1, buses)
 
 if HARMONICS == [1]:
     pass
@@ -180,10 +194,12 @@ n-m+1 nonlinear buses (i = m, ..., n)
 K harmonics considered (excluding fundamental)
 '''
 
+
 def g(v, bus):
     g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
         0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
     return g
+
 
 def current_injections(busID, V, Y_N, I_N):
     # TODO: import Norton parameters from file, depending on type of device
@@ -198,16 +214,18 @@ def harmonic_mismatch(V, Y, buses):
     # power mismatch
     # add all linear buses to dS except slack (# = m-2)
     V_vec = 0
-    dS = buses_fu.P1[buses_fu["type"] != "nonlinear"][1:]/PU_FACTOR
-    + 1j*buses_fu.Q1[buses_fu["type"] != "nonlinear"][1:]/PU_FACTOR
+    dS = buses.P1[buses["type"] != "nonlinear"][1:]/PU_FACTOR
+    + 1j*buses.Q1[buses["type"] != "nonlinear"][1:]/PU_FACTOR
     # current mismatch
     # at fundamental frequency for nonlinear buses
     dI_1 = Y*V_vec
     # at harmonic frequencies for all buses
-
+    dI_h = 0
     f_h = dS
     return f_h
 
 # harmonic power flow execution
+# for bus in buses_fu
+# current_injections()
 
-f_h = harmonic_mismatch(V_h, Y_h, buses_fu)
+f_h = harmonic_mismatch(V_h, Y_h, buses)
