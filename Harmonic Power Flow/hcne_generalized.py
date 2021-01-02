@@ -224,6 +224,7 @@ def harmonic_mismatch(V, Y, buses):
     f_h = dS
     return f_h
 
+
 # harmonic power flow execution
 # for bus in buses_fu
 # current_injections()
