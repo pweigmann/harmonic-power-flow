@@ -224,11 +224,13 @@ G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
 G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
-G_bus4_5 = g(V, "bus4")  # difference between G and g?
-epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
+g_bus4_5 = g(V, "bus4")
+epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)
-G_bus4_5_i = abs(G_bus4_5)*np.sin(gamma_5)
+G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
+G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
+G_bus4_5 = g_bus4_5
+#G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # new
 # --> correct (except rounding and phase sign)
 
 # test
@@ -269,7 +271,7 @@ dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag,
 dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
 
 # harmonic currents for all buses (including slack)
-dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, almost same as Fuchs
+dI_5_nlin = Y_5.dot(V_5)[3] + g_bus4_5  # not zero, almost same as Fuchs
 dI_5_lin = Y_5.dot(V_5)[:3]
 
 # final dI
@@ -285,7 +287,7 @@ err_h = np.linalg.norm(dM, np.inf)
 
 # start iteration
 n_iter_h = 0
-while err_h > 1e-6 and n_iter_h < 10:
+while err_h > 1e-6 and n_iter_h < 9:
     # J1 (dim = 6 x 6, constant?)
     J1 = J
     # J5 (dim = 6 x 8)
@@ -414,8 +416,8 @@ while err_h > 1e-6 and n_iter_h < 10:
     # update V
     V["V_p"][1:] = U_new[:14:2]
     V["V_m"][1:] = U_new[1:14:2]  # negative harmonic magnitudes
-    V.loc[5, "V_p"] = np.array(V.loc[5, "V_p"]) + np.pi  # add pi to phase(p603)
-    V.loc[5, "V_m"] = -np.array(V.loc[5, "V_m"])
+    V.loc[5, "V_p"] = np.array(V.loc[5, "V_p"])  # add pi to phase(p603)
+    V.loc[5, "V_m"] = -(np.array(V.loc[5, "V_m"]))
     # TODO: this has influence on convergence properties, what to do?
 
     # create U by rearranging V
@@ -436,11 +438,12 @@ while err_h > 1e-6 and n_iter_h < 10:
     G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
     # now for h = 5
-    G_bus4_5 = g(V, "bus4")
-    epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
+    g_bus4_5 = g(V, "bus4")
+    epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
     gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-    G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)
-    G_bus4_5_i = abs(G_bus4_5)*np.sin(gamma_5)
+    G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
+    G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
+    G_bus4_5 = g_bus4_5
     # test
     P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
             np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
@@ -475,7 +478,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
 
     # harmonic currents for all buses (including slack)
-    dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, almost same as Fuchs
+    dI_5_nlin = Y_5.dot(V_5)[3] + g_bus4_5  # not zero, almost same as Fuchs
     dI_5_lin = Y_5.dot(V_5)[:3]
 
     # final dI

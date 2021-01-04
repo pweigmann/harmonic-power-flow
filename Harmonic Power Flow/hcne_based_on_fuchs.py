@@ -190,7 +190,6 @@ for n in range(len(buses)):
 
 # 7.4.8: Computation of nonlinear load harmonic currents
 # Fuchs' non-linear device parameters alpha and beta are zero in this example
-# TODO: this will be replaced by Norton Equivalent calculations,
 def g(v, bus):
     g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
         0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
@@ -205,7 +204,7 @@ UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))  # create U by rearranging V
 U = UV[0, 2:]  # without control angles, cut off V_f of slack
 
 # everything only for bus4
-# this whole part might not be needed when not using alpha, beta
+# this whole part is still needed to calculated G_bus4_1
 epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
 gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
 # fundamental "device currents" (why different to injection g(?))
@@ -237,10 +236,6 @@ P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
 Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
         np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
 
-# total injected powers at bus4
-P_4_t = P_4_1 + P_4_5
-Q_4_t = Q_4_1 + Q_4_5
-
 # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
 # dW for the linear buses (analog to dm in 7.3.6):
 V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
@@ -250,13 +245,11 @@ dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
 
 # dW for nonlinear buses needs harmonic line powers
 V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
-F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
-         np.array(V_5*np.conj(Y_5.dot(V_5)))
-dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
+
 # final dW (excluding dW_nlin eq. (7-100) on p. 281)
 dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag])
 
-# current mismatches dI (these should stay the same)
+# current mismatches dI
 # fundamental current difference only for nonlinear bus
 dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
 
@@ -384,8 +377,6 @@ while err_h > 1e-6 and n_iter_h < 10:
     U = UV[0, 2:]
 
     # copy paste from here on, reduced comments
-
-    # this whole part might not be needed anymore
     epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
     gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
     # fundamental "device currents" (why different to injection g(?))
@@ -405,21 +396,6 @@ while err_h > 1e-6 and n_iter_h < 10:
     G_bus4_5_i = abs(G_bus4_5)*np.sin(gamma_5)
     # --> correct (except rounding and phase sign)
 
-    # test
-    P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
-    Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
-
-    P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-            np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
-    Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-            np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
-
-    # total injected powers at bus4
-    P_4_t = P_4_1 + P_4_5
-    Q_4_t = Q_4_1 + Q_4_5
-
     # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
     # dW for the linear buses (analog to dm in 7.3.6):
     V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
@@ -427,9 +403,7 @@ while err_h > 1e-6 and n_iter_h < 10:
 
     # dW for nonlinear buses needs harmonic line powers
     V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
-    F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
-             np.array(V_5*np.conj(Y_5.dot(V_5)))
-    dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
+
     # final dW (excluding dW_nlin)
     dW = np.array([dW_lin[1].real, dW_lin[1].imag,
                    dW_lin[2].real, dW_lin[2].imag])
