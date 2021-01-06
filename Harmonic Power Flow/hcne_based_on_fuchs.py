@@ -217,24 +217,15 @@ G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
 G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
-G_bus4_5 = g(V, "bus4")  # difference between G and g?
+g_bus4_5 = g(V, "bus4")  # difference between G and g?
 # answer: g refers to bus4, G refers to swing bus
-epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
+epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)
-G_bus4_5_i = abs(G_bus4_5)*np.sin(gamma_5)
-# --> correct (except rounding and phase sign)
-
-# test
-P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-        np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
-Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-        np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
-
-P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-        np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
-Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-        np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
+G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
+G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
+G_bus4_5 = g_bus4_5
+# G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+# --> correct (except rounding)
 
 # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
 # dW for the linear buses (analog to dm in 7.3.6):
@@ -246,15 +237,15 @@ dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
 # dW for nonlinear buses needs harmonic line powers
 V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
 
-# final dW (excluding dW_nlin eq. (7-100) on p. 281)
+# final dW (HCNE: excluding dW_nlin eq. (7-100) on p. 281)
 dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag])
 
 # current mismatches dI
 # fundamental current difference only for nonlinear bus
-dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
+dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, bit different to Fuchs
 
 # harmonic currents for all buses (including slack)
-dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, almost same as Fuchs
+dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero,  same as Fuchs
 dI_5_lin = Y_5.dot(V_5)[:3]
 
 # final dI
@@ -330,10 +321,12 @@ while err_h > 1e-6 and n_iter_h < 10:
 
     G11 = np.zeros((2, 6))
     # Fuchs doesn't really build derivative, thus results differ
-    dIdt_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]*np.exp(1j*gamma_1) * \
+    dIdt_1 = -buses.at[(3, "P_1")]/pu_factor/\
+             V.loc[(1, "bus4"), "V_m"]*np.exp(1j*gamma_1) * \
              2*np.sin(gamma_1 - V.loc[(1, "bus4"), "V_p"]) /\
              (np.cos(2*gamma_1 - 2*V.loc[(1, "bus4"), "V_p"]) + 1)
-    dIdV_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]**2 * np.exp(1j*gamma_1) / \
+    dIdV_1 = -buses.at[(3, "P_1")]/pu_factor/\
+             V.loc[(1, "bus4"), "V_m"]**2 * np.exp(1j*gamma_1) / \
              np.cos(V.loc[(1, "bus4"), "V_p"] - gamma_1)  # correct
     G11[0, 4] = dIdt_1.real
     G11[1, 4] = dIdt_1.imag
@@ -389,11 +382,13 @@ while err_h > 1e-6 and n_iter_h < 10:
     G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
     # now for h = 5
-    G_bus4_5 = g(V, "bus4")  # difference between G and g?
-    epsilon_5 = np.arctan(abs(G_bus4_5.imag)/abs(G_bus4_5.real))
+    g_bus4_5 = g(V, "bus4")
+    epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
     gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-    G_bus4_5_r = abs(G_bus4_5)*np.cos(gamma_5)
-    G_bus4_5_i = abs(G_bus4_5)*np.sin(gamma_5)
+    G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
+    G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
+    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+    G_bus4_5 = g_bus4_5
     # --> correct (except rounding and phase sign)
 
     # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
@@ -429,7 +424,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     print("error_h: " + str(err_h))
     n_iter_h += 1
 
-for i in V.loc[5].index:  # why did I do this? --> phase < 2pi
+for i in V.loc[5].index:  # ensure phase < 2pi
     V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_p"]))
 
 print("ended after " + str(n_iter_h) + " iterations")

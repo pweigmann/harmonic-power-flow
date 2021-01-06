@@ -209,7 +209,6 @@ buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))  # create U by rearranging V
 U = np.append(UV[0, 2:], [0, 0])  # append control angles, cut off V_f of slack
 
-# TODO: phasor calculations not understood (?, see 7.4.8),
 # everything only for bus4
 epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
 gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
@@ -230,8 +229,8 @@ gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
 G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
 G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
 G_bus4_5 = g_bus4_5
-#G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # new
-# --> correct (except rounding and phase sign)
+# G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+# --> correct (except rounding)
 
 # test
 P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
@@ -268,10 +267,10 @@ dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag,
 
 # current mismatches dI
 # fundamental current difference only for nonlinear bus
-dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
+dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, bit different to Fuchs
 
 # harmonic currents for all buses (including slack)
-dI_5_nlin = Y_5.dot(V_5)[3] + g_bus4_5  # not zero, almost same as Fuchs
+dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, same as Fuchs
 dI_5_lin = Y_5.dot(V_5)[:3]
 
 # final dI
@@ -416,7 +415,7 @@ while err_h > 1e-6 and n_iter_h < 9:
     # update V
     V["V_p"][1:] = U_new[:14:2]
     V["V_m"][1:] = U_new[1:14:2]  # negative harmonic magnitudes
-    V.loc[5, "V_p"] = np.array(V.loc[5, "V_p"])  # add pi to phase(p603)
+    V.loc[5, "V_p"] = np.array(V.loc[5, "V_p"]) + np.pi  # add pi to phase(p603)
     V.loc[5, "V_m"] = -(np.array(V.loc[5, "V_m"]))
     # TODO: this has influence on convergence properties, what to do?
 
@@ -444,6 +443,8 @@ while err_h > 1e-6 and n_iter_h < 9:
     G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
     G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
     G_bus4_5 = g_bus4_5
+    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+
     # test
     P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
             np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
@@ -494,7 +495,7 @@ while err_h > 1e-6 and n_iter_h < 9:
     print("error_h: " + str(err_h))
     n_iter_h += 1
 
-for i in V.loc[5].index:
+for i in V.loc[5].index:  # ensure phase < 2pi
     V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_p"]))
 
 print("ended after " + str(n_iter_h) + " iterations")
