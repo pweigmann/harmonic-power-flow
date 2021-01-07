@@ -71,6 +71,7 @@ for n in range(0, len(buses)):
 
 # --> correct!
 
+
 # 7.3.6: fundamental mismatch vector (doesn't contain slack bus)
 V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])  # build complex voltage vector
 V_init = pd.Series([])
