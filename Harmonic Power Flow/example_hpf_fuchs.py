@@ -7,7 +7,6 @@
 
 # TODO:
 #  Unify use of V.loc vs. V_h
-#  Generalize for arbitrary buses
 
 # Author: Pascal Weigmann, p.weigmann@posteo.de
 
@@ -45,6 +44,7 @@ lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                [3, 3, 4, 0.01, 0.02],
                                [4, 4, 1, 0.01, 0.02]]),
                      columns=["ID", "fromID", "toID", "R", "X"])
+S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor
 
 # 7.3.5: construct Y_f
 Y_f = np.zeros([len(buses), len(buses)], dtype=complex)
@@ -70,81 +70,29 @@ Y_f_p = np.zeros([len(buses), len(buses)], dtype=tuple)
 for n in range(0, len(buses)):
     for m in range(0, len(buses)):
         Y_f_p[n, m] = A2P(Y_f[n, m])
-
 # --> correct!
 
-# 7.3.6: fundamental mismatch vector (doesn't contain slack bus)
-V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
-V_init = pd.Series([])
-for n in range(0, len(V_f)):
-    V_init = V_init.append(pd.Series([V_f[n].imag, V_f[n].real],
-                                     index=["V_" + str(n) + "_theta",
-                                     "V_" + str(n) + "_m"]))
-S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor
-dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
-
-# Newton Raphson variables (without slack bus)
-x = V_init[2:]
-f = np.zeros(2*(len(dm)-1))
-for n in range(1, len(dm)):
-    f[2*n-2] = dm[n].real
-    f[2*n-1] = dm[n].imag
-
-err = np.linalg.norm(dm, np.Inf)  # max norm best choice?
-
-# 7.3.7: fundamental Jacobian (calculated the way pypsa does)
-I_diag = np.diag(Y_f.dot(V_f))
-V_diag = np.diag(V_f)
-V_diag_norm = np.diag(V_f/abs(V_f))
-
-dSdt = 1j*V_diag.dot(np.conj(I_diag - Y_f.dot(V_diag)))
-dPdt = dSdt.real
-dQdt = dSdt.imag
-
-dSdV = V_diag_norm.dot(np.conj(I_diag)) + \
-       V_diag.dot(np.conj(Y_f.dot(V_diag_norm)))
-dPdV = dSdV.real
-dQdV = dSdV.imag
-
-# order of jacobian entries is differs from pypsa to fuchs, sorting:
-Jb = np.zeros((2*len(buses), 2*len(buses)))
-for n in range(len(buses)):
-    for m in range(len(buses)):
-        Jb[2*n, 2*m] = dPdt[n, m]
-        Jb[2*n+1, 2*m] = dQdt[n, m]
-        Jb[2*n, 2*m+1] = dPdV[n, m]
-        Jb[2*n+1, 2*m+1] = dQdV[n, m]
-
-J = Jb[2:, 2:]  # correct! (Fuchs, p.591)
-
-# 7.3.8: calculate the inverse of the Jacobian
-J_inv = np.linalg.inv(J)
-
-# 7.3.10: compute correction vector + iterate
-x_new = x - J_inv.dot(f)
-# update voltage:
-V.loc[1, 'V_p'][1:] = x_new[::2]
-V.loc[1, 'V_m'][1:] = x_new[1::2]
-
+# start loop here
 n_iter = 0
-# calculate again: f, J  (loop shouldn't start here, but lazy, FIXME)
+err = 1
 while err > 0.0001 and n_iter < 100:
-    n_iter += 1
-    V.loc[1, 'V_p'][1:] = x_new[::2]
-    V.loc[1, 'V_m'][1:] = x_new[1::2]
+    # 7.3.6: fundamental mismatch vector dm (doesn't contain slack bus)
     V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
     dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
-    x = x_new  # update x
-    for n in range(1, len(dm)):  # update f
+
+    # Newton Raphson variables (without slack bus)
+    x = np.squeeze(np.hstack(np.split(
+        V.loc[1][["V_p", "V_m"]], len(V.loc[1]))).transpose()[2:])
+    f = np.zeros(2*(len(dm)-1))
+    for n in range(1, len(dm)):
         f[2*n-2] = dm[n].real
         f[2*n-1] = dm[n].imag
 
-    err = np.linalg.norm(f, np.Inf)
-
-    # recalculate J
+    # 7.3.7: fundamental Jacobian (calculated the way pypsa does)
     I_diag = np.diag(Y_f.dot(V_f))
     V_diag = np.diag(V_f)
     V_diag_norm = np.diag(V_f/abs(V_f))
+
     dSdt = 1j*V_diag.dot(np.conj(I_diag - Y_f.dot(V_diag)))
     dPdt = dSdt.real
     dQdt = dSdt.imag
@@ -154,17 +102,30 @@ while err > 0.0001 and n_iter < 100:
     dPdV = dSdV.real
     dQdV = dSdV.imag
 
+    # sorting of jacobian entries differs from pypsa to fuchs, sorting:
+    Jb = np.zeros((2*len(buses), 2*len(buses)))
     for n in range(len(buses)):
         for m in range(len(buses)):
             Jb[2*n, 2*m] = dPdt[n, m]
             Jb[2*n+1, 2*m] = dQdt[n, m]
             Jb[2*n, 2*m+1] = dPdV[n, m]
             Jb[2*n+1, 2*m+1] = dQdV[n, m]
+    J = Jb[2:, 2:]  # without slack
+    # correct! (Fuchs, p.591)
 
-    J = Jb[2:, 2:]
+    # 7.3.8: calculate the inverse of the Jacobian
     J_inv = np.linalg.inv(J)
+
+    # 7.3.10: compute correction vector + iterate
     x_new = x - J_inv.dot(f)
+    # update voltage:
+    V.loc[1, 'V_p'][1:] = x_new[::2]
+    V.loc[1, 'V_m'][1:] = x_new[1::2]
+
+    err = np.linalg.norm(f, np.Inf)
+    n_iter += 1
     print("error: " + str(err))
+
 print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, strange
 print(str(n_iter) + " iterations")
 
@@ -173,9 +134,6 @@ h = 5
 
 # 7.4.7: Computation of harmonic admittance matrix
 # Swing bus has different representation - fundamental vs. harmonic (p. 288)
-# Fundamental admittance matrix from fundamental power flow:
-Y_f = Y_f  # ToDo: might be included in a multi-index later
-
 # Harmonic admittance matrix, as fund. but reactance scales with harmonic no.
 Y_5 = np.zeros([len(buses), len(buses)], dtype=complex)
 # non-diagonal elements
@@ -205,88 +163,91 @@ def g(v, bus):
 buses.rename({"P": "P_1", "Q": "Q_1"}, axis=1, inplace=True)
 buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 
-# start iteration here?
-UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))  # create U by rearranging V
-U = np.append(UV[0, 2:], [0, 0])  # append control angles, cut off V_f of slack
-
-# everything only for bus4
-epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
-gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
-# fundamental device currents. G is referred to swing bus, g referred to bus4.
-# G and g are the same if gamma is small.
-G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
-             (V.at[(1, "bus4"), "V_m"] *
-              np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
-             (V.at[(1, "bus4"), "V_m"] *
-              np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
-
-# now for h = 5
-g_bus4_5 = g(V, "bus4")
-epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
-gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
-G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-G_bus4_5 = g_bus4_5
-# G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
-# --> correct (except rounding)
-
-# test
-P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-        np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
-Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-        np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
-P_4_1 - buses.at[(3, "P_1")]/pu_factor
-Q_4_1 - buses.at[(3, "Q_1")]/pu_factor  # very small, as should be
-
-P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-        np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
-Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-        np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
-
-# total injected powers at bus4
-P_4_t = P_4_1 + P_4_5
-Q_4_t = Q_4_1 + Q_4_5
-
-# 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
-# dW for the linear buses (analog to dm in 7.3.6):
-V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
-dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
-# --> almost zero, which makes sense because it was minimized during fund. pf
-# but Fuchs has bigger values (rounding?)
-
-# dW for nonlinear buses needs harmonic line powers
-V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
-F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
-         np.array(V_5*np.conj(Y_5.dot(V_5)))
-dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
-# final dW
-dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag,
-               dW_nlin.real, dW_nlin.imag])
-
-# current mismatches dI
-# fundamental current difference only for nonlinear bus
-dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, bit different to Fuchs
-
-# harmonic currents for all buses (including slack)
-dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, same as Fuchs
-dI_5_lin = Y_5.dot(V_5)[:3]
-
-# final dI
-dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
-               dI_5_lin[1].real, dI_5_lin[1].imag,
-               dI_5_lin[2].real, dI_5_lin[2].imag,
-               dI_5_nlin.real, dI_5_nlin.imag,
-               dI_1.real, dI_1.imag])
-
-# final harmonic mismatch vector
-dM = np.append(dW, dI)
-err_h = np.linalg.norm(dM, np.inf)
-
 # start iteration
+err_h = 1
 n_iter_h = 0
 while err_h > 1e-6 and n_iter_h < 9:
+    # create U by rearranging V
+    UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))
+    # append control angles, cut off V_f of slack
+    U = np.append(UV[0, 2:], [0, 0])
+
+    # everything only for bus4
+    epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
+    gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
+    # fundamental device currents. G referred to swing bus, g referred to bus4.
+    # G and g are the same if gamma is small.
+    G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
+                 (V.at[(1, "bus4"), "V_m"] *
+                  np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
+    G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
+                 (V.at[(1, "bus4"), "V_m"] *
+                  np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
+    G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
+
+    # now for h = 5
+    g_bus4_5 = g(V, "bus4")
+    epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
+    gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
+    G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
+    G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
+    G_bus4_5 = g_bus4_5
+    # with this line wrong results, why? This is how Fuchs describes it
+    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i
+
+    # test
+    P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
+            np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
+    Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
+            np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
+    P_4_1 - buses.at[(3, "P_1")]/pu_factor
+    Q_4_1 - buses.at[(3, "Q_1")]/pu_factor  # very small, as should be
+
+    P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
+            np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
+    Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
+            np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
+
+    # total injected powers at bus4
+    P_4_t = P_4_1 + P_4_5
+    Q_4_t = Q_4_1 + Q_4_5
+
+    # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
+    # dW for the linear buses (analog to dm in 7.3.6):
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+    dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
+    # almost zero, which makes sense because it was minimized during fund. pf
+    # but Fuchs has bigger values (rounding?)
+
+    # dW for nonlinear buses needs harmonic line powers
+    V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
+    F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
+             np.array(V_5*np.conj(Y_5.dot(V_5)))
+    dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
+    # final dW
+    dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real,
+                   dW_lin[2].imag, dW_nlin.real, dW_nlin.imag])
+
+    # current mismatches dI
+    # fundamental current difference only for nonlinear bus
+    dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, bit different to Fuchs
+
+    # harmonic currents for all buses (including slack)
+    dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, same as Fuchs
+    dI_5_lin = Y_5.dot(V_5)[:3]
+
+    # final dI
+    dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
+                   dI_5_lin[1].real, dI_5_lin[1].imag,
+                   dI_5_lin[2].real, dI_5_lin[2].imag,
+                   dI_5_nlin.real, dI_5_nlin.imag,
+                   dI_1.real, dI_1.imag])
+
+    # final harmonic mismatch vector
+    dM = np.append(dW, dI)
+    err_h = np.linalg.norm(dM, np.inf)
+
+    # Extended Jacobian
     # J1 (dim = 6 x 6, constant?)
     J1 = J
     # J5 (dim = 6 x 8)
@@ -407,91 +368,18 @@ while err_h > 1e-6 and n_iter_h < 9:
     ])
     # --> correct!
 
-    # 7.4.11: Computation of correction bus vector and iterating
+    # 7.4.11: Newton-Raphson step
+    # Computation of correction bus vector and iterating
     J_5_inv = np.linalg.inv(J_5)
-
     U_new = U - J_5_inv.dot(dM)  # "solve" function better than inverting
 
     # update V
     V["V_p"][1:] = U_new[:14:2]
-    V["V_m"][1:] = U_new[1:14:2]  # negative harmonic magnitudes
+    V["V_m"][1:] = U_new[1:14:2]  # negative harmonic magnitudes (avoidable?)
     V.loc[5, "V_p"] = np.array(V.loc[5, "V_p"]) + np.pi  # add pi to phase(p603)
-    V.loc[5, "V_m"] = -(np.array(V.loc[5, "V_m"]))
-    # TODO: this has influence on convergence properties, what to do?
+    V.loc[5, "V_m"] = -(np.array(V.loc[5, "V_m"]))  # ...and change signum
 
-    # create U by rearranging V
-    UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))
-    # append control angles, cut off V_f of slack
-    U = np.append(UV[0, 2:], [0, 0])
-
-    # copy paste from here on, reduced comments
-    epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
-    gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
-    # fundamental "device currents" (why different to injection g(?))
-    G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
-                 (V.at[(1, "bus4"), "V_m"] *
-                  np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-    G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
-                 (V.at[(1, "bus4"), "V_m"] *
-                  np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-    G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
-
-    # now for h = 5
-    g_bus4_5 = g(V, "bus4")
-    epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
-    gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
-    G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
-    G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-    G_bus4_5 = g_bus4_5
-    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
-
-    # test
-    P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
-    Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
-
-    P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-            np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
-    Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-            np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
-
-    # total injected powers at bus4
-    P_4_t = P_4_1 + P_4_5
-    Q_4_t = Q_4_1 + Q_4_5
-
-    # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
-    # dW for the linear buses (analog to dm in 7.3.6):
-    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
-    dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
-
-    # dW for nonlinear buses needs harmonic line powers
-    V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
-    F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
-             np.array(V_5*np.conj(Y_5.dot(V_5)))
-    dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
-    # final dW
-    dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag,
-                   dW_nlin.real, dW_nlin.imag])
-
-    # current mismatches dI
-    # fundamental current difference only for nonlinear bus
-    dI_1 = Y_f.dot(V_f)[3] + G_bus4_1  # almost zero, different to Fuchs
-
-    # harmonic currents for all buses (including slack)
-    dI_5_nlin = Y_5.dot(V_5)[3] + g_bus4_5  # not zero, almost same as Fuchs
-    dI_5_lin = Y_5.dot(V_5)[:3]
-
-    # final dI
-    dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
-                   dI_5_lin[1].real, dI_5_lin[1].imag,
-                   dI_5_lin[2].real, dI_5_lin[2].imag,
-                   dI_5_nlin.real, dI_5_nlin.imag,
-                   dI_1.real, dI_1.imag])
-
-    # final harmonic mismatch vector
-    dM = np.append(dW, dI)
-    err_h = np.linalg.norm(dM, np.inf)
+    # end iteration
     print("error_h: " + str(err_h))
     n_iter_h += 1
 

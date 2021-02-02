@@ -4,7 +4,6 @@
 
 # TODO:
 #  remove unnecessary parts
-#  what to do about phasor calculations? 
 
 # Author: Pascal Weigmann, p.weigmann@posteo.de
 
@@ -89,7 +88,7 @@ for n in range(1, len(dm)):
     f[2*n-2] = dm[n].real
     f[2*n-1] = dm[n].imag
 
-err = np.linalg.norm(dm, np.Inf)  # infinity norm best choice?
+err = np.linalg.norm(dm, np.Inf)
 
 # 7.3.7: fundamental Jacobian (calculated the way pypsa does)
 I_diag = np.diag(Y_f.dot(V_f))
@@ -223,8 +222,9 @@ epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
 G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
 G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-G_bus4_5 = g_bus4_5
-# G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+#G_bus4_5 = g_bus4_5
+G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+
 # --> correct (except rounding)
 
 # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
@@ -387,8 +387,8 @@ while err_h > 1e-6 and n_iter_h < 10:
     gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
     G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
     G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
-    G_bus4_5 = g_bus4_5
+    G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+    #G_bus4_5 = g_bus4_5
     # --> correct (except rounding and phase sign)
 
     # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]

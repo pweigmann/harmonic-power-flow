@@ -14,6 +14,7 @@ rad = 2*np.pi/360  # change degree to radians
 # calculation of the current injections at bus 4
 iterables = [[1, 5], ["bus1", "bus2", "bus3", "bus4"]]
 multiIdx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
+# TODO: use V from actual HPF iterations
 V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
                            [0.1, 0], [0.1, 0], [0.1, 0], [0.1, 0]]),
                  index=multiIdx, columns=["V_m", "V_a"])
