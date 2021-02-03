@@ -69,7 +69,7 @@ V.xs("bus1", level=1, drop_level=False)
 V.loc[(slice(None), "bus1"), :]
 V.loc[(slice(None), "bus1"), "V_m"]
 
-# most "matlab" like, typically abbreviated by "idx = pd.IndexSlice"
+# most "matlab" like + flexible, typically abbreviated by "idx = pd.IndexSlice"
 V.loc[pd.IndexSlice[:, 'bus1'], :]
 
 # .groupby

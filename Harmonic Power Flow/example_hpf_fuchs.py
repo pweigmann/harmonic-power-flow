@@ -12,6 +12,7 @@
 
 import numpy as np
 import pandas as pd
+import json
 
 pu_factor = 1000
 
@@ -30,7 +31,7 @@ iterables = [[1, 5], ["bus1", "bus2", "bus3", "bus4"]]
 multiIdx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
 V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
                            [0.1, 0], [0.1, 0], [0.1, 0], [0.1, 0]]),
-                 index=multiIdx, columns=["V_m", "V_p"])
+                 index=multiIdx, columns=["V_m", "V_a"])
 V.sort_index(inplace=True)
 
 # grid: buses and lines with their constant properties
@@ -77,12 +78,12 @@ n_iter = 0
 err = 1
 while err > 0.0001 and n_iter < 100:
     # 7.3.6: fundamental mismatch vector dm (doesn't contain slack bus)
-    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
     dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
 
     # Newton Raphson variables (without slack bus)
     x = np.squeeze(np.hstack(np.split(
-        V.loc[1][["V_p", "V_m"]], len(V.loc[1]))).transpose()[2:])
+        V.loc[1][["V_a", "V_m"]], len(V.loc[1]))).transpose()[2:])
     f = np.zeros(2*(len(dm)-1))
     for n in range(1, len(dm)):
         f[2*n-2] = dm[n].real
@@ -119,7 +120,7 @@ while err > 0.0001 and n_iter < 100:
     # 7.3.10: compute correction vector + iterate
     x_new = x - J_inv.dot(f)
     # update voltage:
-    V.loc[1, 'V_p'][1:] = x_new[::2]
+    V.loc[1, 'V_a'][1:] = x_new[::2]
     V.loc[1, 'V_m'][1:] = x_new[1::2]
 
     err = np.linalg.norm(f, np.Inf)
@@ -151,12 +152,11 @@ for n in range(len(buses)):
         Y_5[n, n] = -sum(Y_5[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
 # --> correct
 
-
 # 7.4.8: Computation of nonlinear load harmonic currents
 # in this case independent of alpha and beta
 def g(v, bus):
-    g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
-        0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
+    g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_a"]) +\
+        0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_a"])
     return g
 
 
@@ -166,29 +166,32 @@ buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 # start iteration
 err_h = 1
 n_iter_h = 0
-while err_h > 1e-6 and n_iter_h < 9:
+V_h_log = {}
+I_inj_log = {}
+while err_h > 1e-6 and n_iter_h < 10:
+    V_h_log[n_iter_h] = V.copy()
     # create U by rearranging V
-    UV = np.hstack(np.split(V[["V_p", "V_m"]], len(V)))
+    UV = np.hstack(np.split(V[["V_a", "V_m"]], len(V)))
     # append control angles, cut off V_f of slack
     U = np.append(UV[0, 2:], [0, 0])
 
     # everything only for bus4
     epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
-    gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase
+    gamma_1 = V.at[(1, "bus4"), "V_a"] - epsilon_1  # current phase
     # fundamental device currents. G referred to swing bus, g referred to bus4.
     # G and g are the same if gamma is small.
     G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
                  (V.at[(1, "bus4"), "V_m"] *
-                  np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
+                  np.cos(V.at[(1, "bus4"), "V_a"] - gamma_1))
     G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
                  (V.at[(1, "bus4"), "V_m"] *
-                  np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
+                  np.cos(V.at[(1, "bus4"), "V_a"] - gamma_1))
     G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
     # now for h = 5
     g_bus4_5 = g(V, "bus4")
     epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
-    gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
+    gamma_5 = V.at[(5, "bus4"), "V_a"] - epsilon_5
     G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
     G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
     G_bus4_5 = g_bus4_5
@@ -197,16 +200,16 @@ while err_h > 1e-6 and n_iter_h < 9:
 
     # test
     P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1)
+            np.cos(V.at[(1, "bus4"), "V_a"] - gamma_1)
     Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.sin(V.at[(1, "bus4"), "V_p"] - gamma_1)
+            np.sin(V.at[(1, "bus4"), "V_a"] - gamma_1)
     P_4_1 - buses.at[(3, "P_1")]/pu_factor
     Q_4_1 - buses.at[(3, "Q_1")]/pu_factor  # very small, as should be
 
     P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-            np.cos(V.at[(5, "bus4"), "V_p"] - gamma_5)
+            np.cos(V.at[(5, "bus4"), "V_a"] - gamma_5)
     Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
-            np.sin(V.at[(5, "bus4"), "V_p"] - gamma_5)
+            np.sin(V.at[(5, "bus4"), "V_a"] - gamma_5)
 
     # total injected powers at bus4
     P_4_t = P_4_1 + P_4_5
@@ -214,13 +217,13 @@ while err_h > 1e-6 and n_iter_h < 9:
 
     # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
     # dW for the linear buses (analog to dm in 7.3.6):
-    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
     dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
     # almost zero, which makes sense because it was minimized during fund. pf
     # but Fuchs has bigger values (rounding?)
 
     # dW for nonlinear buses needs harmonic line powers
-    V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
+    V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_a"])
     F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
              np.array(V_5*np.conj(Y_5.dot(V_5)))
     dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
@@ -235,6 +238,9 @@ while err_h > 1e-6 and n_iter_h < 9:
     # harmonic currents for all buses (including slack)
     dI_5_nlin = Y_5.dot(V_5)[3] + G_bus4_5  # not zero, same as Fuchs
     dI_5_lin = Y_5.dot(V_5)[:3]
+
+    # log current injections
+    I_inj_log[n_iter_h] = [G_bus4_1, G_bus4_5]
 
     # final dI
     dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
@@ -284,9 +290,9 @@ while err_h > 1e-6 and n_iter_h < 9:
     # G51 (dim = 8 x 6)
     # derivatives of current injections (wrt fund)
     dgdt_1 = 0.9j*V.loc[(1, "bus4"), "V_m"]**3*\
-             np.exp(3j*V.loc[(1, "bus4"), "V_p"])
+             np.exp(3j*V.loc[(1, "bus4"), "V_a"])
     dgdV_1 = 0.9*V.loc[(1, "bus4"), "V_m"]**2*\
-             np.exp(3j*V.loc[(1, "bus4"), "V_p"])
+             np.exp(3j*V.loc[(1, "bus4"), "V_a"])
     G51 = np.zeros((8, 6))
     G51[6, 4] = dgdt_1.real
     G51[7, 4] = dgdt_1.imag
@@ -296,9 +302,9 @@ while err_h > 1e-6 and n_iter_h < 9:
     # Y55 + G55 (dim = 8 x 8)
     # derivatives of current injections (wrt h=5)
     dgdt_5 = 0.9j*V.loc[(5, "bus4"), "V_m"]**2 *\
-             np.exp(3j*V.loc[(5, "bus4"), "V_p"])
+             np.exp(3j*V.loc[(5, "bus4"), "V_a"])
     dgdV_5 = 0.6*V.loc[(5, "bus4"), "V_m"] *\
-             np.exp(3j*V.loc[(5, "bus4"), "V_p"])
+             np.exp(3j*V.loc[(5, "bus4"), "V_a"])
     Y55 = np.zeros((8, 8))
     G55 = np.zeros((8, 8))
 
@@ -308,9 +314,9 @@ while err_h > 1e-6 and n_iter_h < 9:
             Y55[2*i, 2*k] = (1j*Y_5[i, k] * V_5[k]).real
             Y55[2*i+1, 2*k] = (1j*Y_5[i, k] * V_5[k]).imag
             Y55[2*i, 2*k+1] = (Y_5[i, k] *
-                            np.exp(1j*V.loc[(5, "bus"+str(k+1)), "V_p"])).real
+                            np.exp(1j*V.loc[(5, "bus"+str(k+1)), "V_a"])).real
             Y55[2*i+1, 2*k+1] = (Y_5[i, k] *
-                            np.exp(1j*V.loc[(5, "bus"+str(k+1)), "V_p"])).imag
+                            np.exp(1j*V.loc[(5, "bus"+str(k+1)), "V_a"])).imag
             # could be outside, but for generalization later better here
             if i == 3 and k == 3:
                 G55[2*i, 2*k] = dgdt_5.real
@@ -321,25 +327,25 @@ while err_h > 1e-6 and n_iter_h < 9:
 
     # Y11 + G11 (dim = 2 x 6)
     epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
-    gamma_1 = V.at[(1, "bus4"), "V_p"] - epsilon_1  # current phase, bus 4
+    gamma_1 = V.at[(1, "bus4"), "V_a"] - epsilon_1  # current phase, bus 4
 
     Y11 = np.zeros((2, 6))
     for k in range(0, 3):
         Y11[0, 2*k] = (1j*Y_f[3, k+1]*V_f[k+1]).real
         Y11[1, 2*k] = (1j*Y_f[3, k+1]*V_f[k+1]).imag
         Y11[0, 2*k+1] = (Y_f[3, k+1] *
-                         np.exp(1j*V.loc[(1, "bus"+str(k+2)), "V_p"])).real
+                         np.exp(1j*V.loc[(1, "bus"+str(k+2)), "V_a"])).real
         Y11[1, 2*k+1] = (Y_f[3, k+1] *
-                         np.exp(1j*V.loc[(1, "bus"+str(k+2)), "V_p"])).imag
+                         np.exp(1j*V.loc[(1, "bus"+str(k+2)), "V_a"])).imag
     # --> correct!
 
     G11 = np.zeros((2, 6))
     # Fuchs doesn't really build derivative, thus results differ
     dIdt_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]*np.exp(1j*gamma_1) * \
-             2*np.sin(gamma_1 - V.loc[(1, "bus4"), "V_p"]) /\
-             (np.cos(2*gamma_1 - 2*V.loc[(1, "bus4"), "V_p"]) + 1)
+             2*np.sin(gamma_1 - V.loc[(1, "bus4"), "V_a"]) /\
+             (np.cos(2*gamma_1 - 2*V.loc[(1, "bus4"), "V_a"]) + 1)
     dIdV_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]**2 * np.exp(1j*gamma_1) / \
-             np.cos(V.loc[(1, "bus4"), "V_p"] - gamma_1)  # correct
+             np.cos(V.loc[(1, "bus4"), "V_a"] - gamma_1)  # correct
     G11[0, 4] = dIdt_1.real
     G11[1, 4] = dIdt_1.imag
     G11[0, 5] = dIdV_1.real
@@ -374,9 +380,9 @@ while err_h > 1e-6 and n_iter_h < 9:
     U_new = U - J_5_inv.dot(dM)  # "solve" function better than inverting
 
     # update V
-    V["V_p"][1:] = U_new[:14:2]
+    V["V_a"][1:] = U_new[:14:2]
     V["V_m"][1:] = U_new[1:14:2]  # negative harmonic magnitudes (avoidable?)
-    V.loc[5, "V_p"] = np.array(V.loc[5, "V_p"]) + np.pi  # add pi to phase(p603)
+    V.loc[5, "V_a"] = np.array(V.loc[5, "V_a"]) + np.pi  # add pi to phase(p603)
     V.loc[5, "V_m"] = -(np.array(V.loc[5, "V_m"]))  # ...and change signum
 
     # end iteration
@@ -384,11 +390,15 @@ while err_h > 1e-6 and n_iter_h < 9:
     n_iter_h += 1
 
 for i in V.loc[5].index:  # ensure phase < 2pi
-    V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_p"]))
+    V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_a"]))
 
 print("ended after " + str(n_iter_h) + " iterations")
 print("final voltages:")
 print(V)
+
+V_log_df = pd.concat(V_h_log, names=["iteration"])
+
+V_log_df.to_json("V_log.json", orient="table")
 # after 8 iterations, the result doesn't get better, somehow converged
 # results are very close to Fuchs' results, but still unsure about
 # negative harmonic voltage magnitudes, do they occur every time?
