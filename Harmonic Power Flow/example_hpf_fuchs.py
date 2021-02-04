@@ -127,8 +127,8 @@ while err > 0.0001 and n_iter < 100:
     n_iter += 1
     print("error: " + str(err))
 
-print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, strange
-print(str(n_iter) + " iterations")
+    print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, strange
+    print(str(n_iter) + " iterations")
 
 # HARMONIC POWER FLOW, only 5th harmonic considered
 h = 5

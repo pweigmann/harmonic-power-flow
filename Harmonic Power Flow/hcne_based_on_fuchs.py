@@ -12,7 +12,12 @@ import numpy as np
 import pandas as pd
 
 pu_factor = 1000
-
+# Norton parameter from fuchs:
+Y_N = np.array([[ 9.78668336e-02-1.99148459e-01j,
+                  -1.72493982e-05+1.76439133e-05j],
+                [ 1.33136849e+01-5.84900472e+00j,
+                  2.83733759e-02-1.23738247e-03j]])
+I_N = np.array([0.11930918+0.11137297j, -12.94314986+5.8675826j])
 
 # functions to change from algebraic to polar form
 def P2A(radii, angles):
@@ -213,19 +218,27 @@ G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
 G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
              (V.at[(1, "bus4"), "V_m"] *
               np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
+#G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
 # now for h = 5
+# dW for nonlinear buses needs harmonic line powers
+V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
+
 g_bus4_5 = g(V, "bus4")  # difference between G and g?
 # answer: g refers to bus4, G refers to swing bus
 epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
 gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
 G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
 G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-#G_bus4_5 = g_bus4_5
-G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+#G_bus4_5 = g_bus4_5  # correct (except rounding)
+#G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
 
-# --> correct (except rounding)
+# alternative: current injection from Norton Equivalents
+V_bus4 = np.array([V_f[3], V_5[3]])
+I_inj_NE = I_N - Y_N.dot(V_bus4)
+G_bus4_1 = I_inj_NE[0]
+G_bus4_5 = I_inj_NE[1]
+# --> different results
 
 # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
 # dW for the linear buses (analog to dm in 7.3.6):
@@ -233,9 +246,6 @@ V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_p"])
 dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
 # --> almost zero, which makes sense because it was minimized during fund. pf
 # but Fuchs has bigger values (rounding?)
-
-# dW for nonlinear buses needs harmonic line powers
-V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_p"])
 
 # final dW (HCNE: excluding dW_nlin eq. (7-100) on p. 281)
 dW = np.array([dW_lin[1].real, dW_lin[1].imag, dW_lin[2].real, dW_lin[2].imag])
@@ -379,7 +389,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     G_bus4_1_i = buses.at[(3, "P_1")]/pu_factor * np.sin(gamma_1) / \
                  (V.at[(1, "bus4"), "V_m"] *
                   np.cos(V.at[(1, "bus4"), "V_p"] - gamma_1))
-    G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
+    #G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
     # now for h = 5
     g_bus4_5 = g(V, "bus4")
@@ -387,9 +397,15 @@ while err_h > 1e-6 and n_iter_h < 10:
     gamma_5 = V.at[(5, "bus4"), "V_p"] - epsilon_5
     G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
     G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-    G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
+    #G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i  # with this line wrong results, why?
     #G_bus4_5 = g_bus4_5
     # --> correct (except rounding and phase sign)
+
+    # alternative: current injection from Norton Equivalents
+    V_bus4 = np.array([V_f[3], V_5[3]])
+    I_inj_NE = I_N - Y_N.dot(V_bus4)
+    G_bus4_1 = I_inj_NE[0]
+    G_bus4_5 = I_inj_NE[1]
 
     # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
     # dW for the linear buses (analog to dm in 7.3.6):
