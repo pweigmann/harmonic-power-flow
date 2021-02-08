@@ -15,7 +15,9 @@ import pandas as pd
 import json
 
 pu_factor = 1000
-
+n_iter_max = 20
+err_max = 0.0001
+err_h_max = 0.1
 
 # functions to change from algebraic to polar form
 def P2A(radii, angles):
@@ -47,7 +49,7 @@ lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                      columns=["ID", "fromID", "toID", "R", "X"])
 S = buses["P"]/pu_factor+1j*buses["Q"]/pu_factor
 
-# 7.3.5: construct Y_f
+# construct fundamental admittance matrix Y_f (7.3.5)
 Y_f = np.zeros([len(buses), len(buses)], dtype=complex)
 # non-diagonal elements
 for k in range(0, lines.shape[0]):
@@ -66,19 +68,21 @@ for n in range(0, len(buses)):
                            1j*lines[lines.fromID == n+1].X.iloc[0]) +\
                         (1/(lines[lines.toID == n+1].R.iloc[0] +
                             1j*lines[lines.toID == n+1].X.iloc[0]))
-# change base for comparison to Fuchs
+# change to polar base for comparison to Fuchs
 Y_f_p = np.zeros([len(buses), len(buses)], dtype=tuple)
 for n in range(0, len(buses)):
     for m in range(0, len(buses)):
         Y_f_p[n, m] = A2P(Y_f[n, m])
 # --> correct!
 
-# start loop here
+# fundamental Newton Raphson algorithm: minimize mismatch vector f
+# x_new = x - J^-1 * f
 n_iter = 0
 err = 1
-while err > 0.0001 and n_iter < 100:
+while err > err_max and n_iter <= n_iter_max:
     # 7.3.6: fundamental mismatch vector dm (doesn't contain slack bus)
-    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])  # voltage as complex vec
+    # power mismatch
     dm = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
 
     # Newton Raphson variables (without slack bus)
@@ -93,7 +97,7 @@ while err > 0.0001 and n_iter < 100:
     I_diag = np.diag(Y_f.dot(V_f))
     V_diag = np.diag(V_f)
     V_diag_norm = np.diag(V_f/abs(V_f))
-
+    # submatrizes
     dSdt = 1j*V_diag.dot(np.conj(I_diag - Y_f.dot(V_diag)))
     dPdt = dSdt.real
     dQdt = dSdt.imag
@@ -119,18 +123,24 @@ while err > 0.0001 and n_iter < 100:
 
     # 7.3.10: compute correction vector + iterate
     x_new = x - J_inv.dot(f)
+
     # update voltage:
     V.loc[1, 'V_a'][1:] = x_new[::2]
     V.loc[1, 'V_m'][1:] = x_new[1::2]
 
     err = np.linalg.norm(f, np.Inf)
     n_iter += 1
-    print("error: " + str(err))
+    print("error_f: " + str(err))
 
-    print(x_new)  # voltage magnitudes same as fuchs, angles a bit off, strange
-    print(str(n_iter) + " iterations")
+if err < err_max:
+    print("Fundamental power flow converged after " +
+          str(n_iter) + " iterations")
+else:
+    print("No convergence after " + str(n_iter_max) + " iterations!")
 
-# HARMONIC POWER FLOW, only 5th harmonic considered
+
+# HARMONIC POWER FLOW
+# only 5th harmonic considered
 h = 5
 
 # 7.4.7: Computation of harmonic admittance matrix
@@ -152,14 +162,16 @@ for n in range(len(buses)):
         Y_5[n, n] = -sum(Y_5[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
 # --> correct
 
+
 # 7.4.8: Computation of nonlinear load harmonic currents
-# in this case independent of alpha and beta
+# in this case independent of device control parameters alpha and beta
 def g(v, bus):
     g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_a"]) +\
         0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_a"])
     return g
 
 
+# extend "buses" to include harmonic parameters
 buses.rename({"P": "P_1", "Q": "Q_1"}, axis=1, inplace=True)
 buses = buses.assign(P_5=np.zeros(len(buses)), Q_5=np.zeros(len(buses)))
 
@@ -168,14 +180,14 @@ err_h = 1
 n_iter_h = 0
 V_h_log = {}
 I_inj_log = {}
-while err_h > 1e-6 and n_iter_h < 10:
+while err_h > err_h_max and n_iter_h < n_iter_max:
     V_h_log[n_iter_h] = V.copy()
     # create U by rearranging V
     UV = np.hstack(np.split(V[["V_a", "V_m"]], len(V)))
-    # append control angles, cut off V_f of slack
+    # append control angles, cut off slack
     U = np.append(UV[0, 2:], [0, 0])
 
-    # everything only for bus4
+    # nonlinear current injections G at bus4
     epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
     gamma_1 = V.at[(1, "bus4"), "V_a"] - epsilon_1  # current phase
     # fundamental device currents. G referred to swing bus, g referred to bus4.
@@ -194,9 +206,9 @@ while err_h > 1e-6 and n_iter_h < 10:
     gamma_5 = V.at[(5, "bus4"), "V_a"] - epsilon_5
     G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
     G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-    G_bus4_5 = g_bus4_5
+    #G_bus4_5 = g_bus4_5
     # with this line wrong results, why? This is how Fuchs describes it
-    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i
+    G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i
 
     # test
     P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
@@ -340,12 +352,10 @@ while err_h > 1e-6 and n_iter_h < 10:
     # --> correct!
 
     G11 = np.zeros((2, 6))
-    # Fuchs doesn't really build derivative, thus results differ
-    dIdt_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]*np.exp(1j*gamma_1) * \
-             2*np.sin(gamma_1 - V.loc[(1, "bus4"), "V_a"]) /\
-             (np.cos(2*gamma_1 - 2*V.loc[(1, "bus4"), "V_a"]) + 1)
-    dIdV_1 = -P_4_1/V.loc[(1, "bus4"), "V_m"]**2 * np.exp(1j*gamma_1) / \
-             np.cos(V.loc[(1, "bus4"), "V_a"] - gamma_1)  # correct
+    # corrected and simplified version of dIdt_1
+    dIdt_1 = 1j*G_bus4_1
+    dIdV_1 = -G_bus4_1/V.loc[(1, "bus4"), "V_m"]  # correct
+
     G11[0, 4] = dIdt_1.real
     G11[1, 4] = dIdt_1.imag
     G11[0, 5] = dIdV_1.real
@@ -363,7 +373,7 @@ while err_h > 1e-6 and n_iter_h < 10:
     # H5 (dim = 8 x 2, solution independent of H matrices)
     H5 = np.zeros((8, 2))
 
-    # H1 (dim = 2 x 2, random values to avoid unsolvable system)
+    # H1 (dim = 2 x 2, random values to avoid unsolvable system, p.604)
     H1 = np.array([[1, 2], [3, 4]])
 
     # assembling J_5 (dim 16 x 16)
@@ -392,7 +402,12 @@ while err_h > 1e-6 and n_iter_h < 10:
 for i in V.loc[5].index:  # ensure phase < 2pi
     V.loc[5, i] = A2P(P2A(V.loc[(5, i), "V_m"], V.loc[(5, i), "V_a"]))
 
-print("ended after " + str(n_iter_h) + " iterations")
+if err_h < err_h_max:
+    print("Harmonic power flow converged after " +
+          str(n_iter_h) + " iterations")
+else:
+    print("No convergence after " + str(n_iter_max) + " iterations!")
+
 print("final voltages:")
 print(V)
 
@@ -403,5 +418,3 @@ V_log_df.to_json("V_log.json", orient="table")
 # results are very close to Fuchs' results, but still unsure about
 # negative harmonic voltage magnitudes, do they occur every time?
 # are they a problem? (no or slower convergence if not corrected)
-
-# next up: using Norton equivalents to calculate load injections
