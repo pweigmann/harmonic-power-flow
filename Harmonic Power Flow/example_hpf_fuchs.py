@@ -5,27 +5,24 @@
 # to computer based complex calculations in algebraic form. Also uses different
 # ordering of variables as pypsa and rounds numbers after 3 decimals.
 
-# TODO:
-#  Unify use of V.loc vs. V_h
-
 # Author: Pascal Weigmann, p.weigmann@posteo.de
 
 import numpy as np
 import pandas as pd
-import json
 
 pu_factor = 1000
 n_iter_max = 20
 err_max = 0.0001
-err_h_max = 0.1
+err_h_max = 0.01
+
 
 # functions to change from algebraic to polar form
 def P2A(radii, angles):
     return radii * np.exp(1j*angles)
 
 
-def A2P(x):
-    return abs(x), np.angle(x)
+def A2P(c):
+    return abs(c), np.angle(c)
 
 
 # initialize voltage as multi-index DataFrame
@@ -68,7 +65,7 @@ for n in range(0, len(buses)):
                            1j*lines[lines.fromID == n+1].X.iloc[0]) +\
                         (1/(lines[lines.toID == n+1].R.iloc[0] +
                             1j*lines[lines.toID == n+1].X.iloc[0]))
-# change to polar base for comparison to Fuchs
+# change to polar base for easier comparison to Fuchs example
 Y_f_p = np.zeros([len(buses), len(buses)], dtype=tuple)
 for n in range(0, len(buses)):
     for m in range(0, len(buses)):
@@ -77,7 +74,7 @@ for n in range(0, len(buses)):
 
 # fundamental Newton Raphson algorithm: minimize mismatch vector f
 # x_new = x - J^-1 * f
-n_iter = 0
+n_iter = 1
 err = 1
 while err > err_max and n_iter <= n_iter_max:
     # 7.3.6: fundamental mismatch vector dm (doesn't contain slack bus)
@@ -97,7 +94,8 @@ while err > err_max and n_iter <= n_iter_max:
     I_diag = np.diag(Y_f.dot(V_f))
     V_diag = np.diag(V_f)
     V_diag_norm = np.diag(V_f/abs(V_f))
-    # submatrizes
+
+    # submatrices
     dSdt = 1j*V_diag.dot(np.conj(I_diag - Y_f.dot(V_diag)))
     dPdt = dSdt.real
     dQdt = dSdt.imag
@@ -182,15 +180,20 @@ V_h_log = {}
 I_inj_log = {}
 while err_h > err_h_max and n_iter_h < n_iter_max:
     V_h_log[n_iter_h] = V.copy()
-    # create U by rearranging V
+
+    # create harmonic state vector U by rearranging V (p.280, eq. (7-93))
     UV = np.hstack(np.split(V[["V_a", "V_m"]], len(V)))
     # append control angles, cut off slack
     U = np.append(UV[0, 2:], [0, 0])
+    # shorter notation
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_a"])
 
     # nonlinear current injections G at bus4
     epsilon_1 = np.arctan(buses.at[(3, "Q_1")]/buses.at[(3, "P_1")])
-    gamma_1 = V.at[(1, "bus4"), "V_a"] - epsilon_1  # current phase
-    # fundamental device currents. G referred to swing bus, g referred to bus4.
+    gamma_1 = V.at[(1, "bus4"), "V_a"] - epsilon_1
+    # fundamental current injections
+    # G referred to swing bus, g referred to bus4.
     # G and g are the same if gamma is small.
     G_bus4_1_r = buses.at[(3, "P_1")]/pu_factor * np.cos(gamma_1) / \
                  (V.at[(1, "bus4"), "V_m"] *
@@ -200,42 +203,34 @@ while err_h > err_h_max and n_iter_h < n_iter_max:
                   np.cos(V.at[(1, "bus4"), "V_a"] - gamma_1))
     G_bus4_1 = G_bus4_1_r + 1j*G_bus4_1_i
 
-    # now for h = 5
+    # harmonic current injections
     g_bus4_5 = g(V, "bus4")
     epsilon_5 = np.arctan(abs(g_bus4_5.imag)/abs(g_bus4_5.real))
     gamma_5 = V.at[(5, "bus4"), "V_a"] - epsilon_5
     G_bus4_5_r = abs(g_bus4_5)*np.cos(gamma_5)
     G_bus4_5_i = abs(g_bus4_5)*np.sin(gamma_5)
-    #G_bus4_5 = g_bus4_5
-    # with this line wrong results, why? This is how Fuchs describes it
-    G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i
+    G_bus4_5 = g_bus4_5  # this is what yields same results as Fuchs
 
-    # test
-    P_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.cos(V.at[(1, "bus4"), "V_a"] - gamma_1)
-    Q_4_1 = abs(G_bus4_1)*V.at[(1, "bus4"), "V_m"] * \
-            np.sin(V.at[(1, "bus4"), "V_a"] - gamma_1)
-    P_4_1 - buses.at[(3, "P_1")]/pu_factor
-    Q_4_1 - buses.at[(3, "Q_1")]/pu_factor  # very small, as should be
+    # with this line wrong results, why? This is how Fuchs describes it (p.600)
+    # G_bus4_5 = G_bus4_5_r + 1j*G_bus4_5_i
 
+    # total injected powers at bus4
+    P_4_1 = buses.at[(3, "P_1")]/pu_factor
+    Q_4_1 = buses.at[(3, "Q_1")]/pu_factor
     P_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
             np.cos(V.at[(5, "bus4"), "V_a"] - gamma_5)
     Q_4_5 = abs(G_bus4_5)*V.at[(5, "bus4"), "V_m"] * \
             np.sin(V.at[(5, "bus4"), "V_a"] - gamma_5)
-
-    # total injected powers at bus4
     P_4_t = P_4_1 + P_4_5
     Q_4_t = Q_4_1 + Q_4_5
 
     # 7.4.9: Evaluation of harmonic mismatch vector dM = [dW, dI_5, dI_1]
     # dW for the linear buses (analog to dm in 7.3.6):
-    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
     dW_lin = np.array(V_f*np.conj(Y_f.dot(V_f))) + np.array(S)
     # almost zero, which makes sense because it was minimized during fund. pf
     # but Fuchs has bigger values (rounding?)
 
     # dW for nonlinear buses needs harmonic line powers
-    V_5 = V.loc[5, "V_m"]*np.exp(1j*V.loc[5, "V_a"])
     F_nlin = np.array(V_f*np.conj(Y_f.dot(V_f))) + \
              np.array(V_5*np.conj(Y_5.dot(V_5)))
     dW_nlin = F_nlin[3] + P_4_t + 1j*Q_4_t  # also different to Fuchs
@@ -252,7 +247,9 @@ while err_h > err_h_max and n_iter_h < n_iter_max:
     dI_5_lin = Y_5.dot(V_5)[:3]
 
     # log current injections
-    I_inj_log[n_iter_h] = [G_bus4_1, G_bus4_5]
+    I_inj_log[n_iter_h] = pd.DataFrame([[G_bus4_1.real, G_bus4_1.imag],
+                                        [G_bus4_5.real, G_bus4_5.imag]],
+                                       index=[1, 5])
 
     # final dI
     dI = np.array([dI_5_lin[0].real, dI_5_lin[0].imag,
@@ -265,7 +262,7 @@ while err_h > err_h_max and n_iter_h < n_iter_max:
     dM = np.append(dW, dI)
     err_h = np.linalg.norm(dM, np.inf)
 
-    # Extended Jacobian
+    # extended Jacobian
     # J1 (dim = 6 x 6, constant?)
     J1 = J
     # J5 (dim = 6 x 8)
@@ -332,7 +329,7 @@ while err_h > err_h_max and n_iter_h < n_iter_max:
             # could be outside, but for generalization later better here
             if i == 3 and k == 3:
                 G55[2*i, 2*k] = dgdt_5.real
-                G55[2*i+1, 2*k] = dgdt_5.imag  # different
+                G55[2*i+1, 2*k] = dgdt_5.imag  # small mistake of Fuchs, p. 604
                 G55[2*i, 2*k+1] = dgdV_5.real
                 G55[2*i+1, 2*k+1] = dgdV_5.imag
     # --> correct except 3 elements, mistakes most probably by Fuchs
@@ -406,15 +403,11 @@ if err_h < err_h_max:
     print("Harmonic power flow converged after " +
           str(n_iter_h) + " iterations")
 else:
-    print("No convergence after " + str(n_iter_max) + " iterations!")
+    print("No convergence after " + str(n_iter_max) + " iterations")
 
 print("final voltages:")
 print(V)
 
-V_log_df = pd.concat(V_h_log, names=["iteration"])
-
-V_log_df.to_json("V_log.json", orient="table")
-# after 8 iterations, the result doesn't get better, somehow converged
-# results are very close to Fuchs' results, but still unsure about
-# negative harmonic voltage magnitudes, do they occur every time?
-# are they a problem? (no or slower convergence if not corrected)
+pd.concat(V_h_log, names=["iteration"]).to_json("V_log.json", orient="table")
+pd.concat(I_inj_log, names=["iteration", "harmonic"]).to_json(
+    "I_log.json", orient="table")

@@ -29,6 +29,8 @@ V = pd.DataFrame(np.array([[1, 0], [1, 0], [1, 0], [1, 0],
 
 # import logged voltages from "example_hpf_fuchs"
 V_log = pd.read_json("V_log.json", orient="table")
+# I_log = pd.read_json("I_log.json", orient="table") some problem with import
+
 # slice V to obtain the voltages needed for the virtual measurement at bus4
 V_mes = V_log.loc[pd.IndexSlice[0:2, :, "bus4"], :]
 
@@ -47,16 +49,13 @@ def g5(V, bus):
 def inj(V):
     G_1 = P_1*np.exp(1j*(V.at[(1, "bus4"), "V_a"]-eps_1))\
           /V.at[(1, "bus4"), "V_m"]*np.cos(eps_1)
-    #G_5 = abs(g5(V, "bus4"))*np.exp(1j*(
-    #        V.at[(5, "bus4"), "V_a"] -
-    #        np.arctan(abs(np.imag(g5(V, "bus4")))/abs(np.real(g5(V, "bus4"))))))
     G_5 = g5(V, "bus4")
+    # as described in the book
+    # G_5 = abs(g5(V, "bus4"))*np.exp(1j*(V.at[(5, "bus4"), "V_a"] -
+    #        np.arctan(abs(np.imag(g5(V, "bus4")))/
+    #        abs(np.real(g5(V, "bus4"))))))
     return G_1, G_5
 
-
-# measurement 1, manually
-#V1 = copy.deepcopy(V)
-#V1.loc[(slice(None), "bus4"), :] = [[1, 0], [0.1, 0]]
 
 # measurement 1, from simulation voltages
 V1 = V_mes.loc[0]
@@ -65,20 +64,12 @@ V1 = V_mes.loc[0]
 I_f_1 = inj(V1)[0]
 I_5_1 = inj(V1)[1]
 
-# measurement 2, manually
-#V2 = copy.deepcopy(V)
-#V2.loc[(slice(None), "bus4"), :] = [[1, 0], [0.1, 0.1]]
-
 # measurement 2, from simulation voltages
 V2 = V_mes.loc[1]
 
 # results 2
 I_f_2 = inj(V2)[0]
 I_5_2 = inj(V2)[1]
-
-# measurement 3, manually
-#V3 = copy.deepcopy(V)
-#V3.loc[(slice(None), "bus4"), :] = [[0.9, 0.1], [0.2, 0]]
 
 # measurement 3, from simulation voltages
 V3 = V_mes.loc[2]
