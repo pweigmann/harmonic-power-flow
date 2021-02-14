@@ -31,6 +31,8 @@ V.head()  # show first 5 rows
 V["V_m"]
 # ... or a list of columns as df
 V[["V_m", "V_p"]]
+# alternative: slicing along the other axis with .loc
+V.loc(axis=1)["V_m"]
 
 # .loc
 # value of first level index (h = 1), index cut of
@@ -47,6 +49,9 @@ V.loc[[(1, "bus1")]]
 V.loc[(1, "bus1"), "V_m"]
 # ... or list of values as series
 V.loc[[(1, "bus1"), (1, "bus2")], "V_m"]
+
+
+
 
 # .iloc
 # first row of df, returns series (returns df with .iloc[[0]])
