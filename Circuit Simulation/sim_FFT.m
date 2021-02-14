@@ -21,7 +21,11 @@ Initialph = 0;  % harmonic voltage phase
 % Vh = 2.3;  % harmonic voltage magnitude
 
 supply_harmonics = 50*(3:2:h_max/f);
-supply_voltage_h = [2.3, 23];
+supply_voltage_h = [2.3, 11.5, 23];
+
+% variable evaluation parameters
+t_start = 0.06;
+cycles = 2;
 
 results = struct;
 
@@ -32,10 +36,6 @@ for i = (1:length(supply_harmonics))
 
         % execute circuit simulation
         sim("SMPS")
-
-        % variable evaluation parameters
-        t_start = 0.06;
-        cycles = 2;
 
         t_end = t_start + cycles/f - T;
         time_complete = (0:T:t);
@@ -63,7 +63,6 @@ for i = (1:length(supply_harmonics))
         Vs_spec = P2_v(1:L/2+1);  % single sided spectrum
         % double to compensate cutting in half
         Vs_spec(2:end-1) = 2*Vs_spec(2:end-1);
-        
 
         % save paramters and results as struct
         results(i, j).V_m_f = Va;
@@ -73,6 +72,7 @@ for i = (1:length(supply_harmonics))
         results(i, j).f_h = fh;
         results(i, j).H = H(1:int32(2*h_max/f+1));
         results(i, j).I_inj = I_inj(1:int32(2*h_max/f+1));
+        results(i, j).t_start = t_start;
         results(i, j).cycles = cycles;
         results(i, j).Fs = T;
         results(i, j).H_max = h_max;
