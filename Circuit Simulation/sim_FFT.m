@@ -10,24 +10,24 @@
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 150;   % highest harmonic simulated, min = 150
+h_max = 350;   % highest harmonic simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
 Va = 230;  % fundamental voltage magnitude
-Initialph_f = 20;  % fundamental voltage phase, [degree]
+Initialph_f = 0;  % fundamental voltage phase, [degree]
 
 % harmonic voltage source (variable operating conditions)
 supply_harmonics = 50*(3:2:h_max/f);  % harmonic frequency range
-supply_voltage_h = [23];  % harmonic voltage magnitude range
+supply_voltage_h = [2.3, 23];  % harmonic voltage magnitude range
 Initialph_h = 30;  % harmonic voltage phase, [degree]
 
 % variable evaluation parameters
 % time of start of FFT after simulation start
-t_start = 0.06;  
+t_start = 0.08;  
 % number of periods analyzed
 % also defines interharmonic frequency resolution
-cycles = 2;  
+cycles = 3;  
 
 results = struct;
 

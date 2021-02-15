@@ -6,7 +6,7 @@ Model {
     NumRootInports	    0
     NumRootOutports	    0
     ParameterArgumentNames  ""
-    ComputedModelVersion    "1.19"
+    ComputedModelVersion    "1.20"
     NumModelReferences	    0
     NumTestPointedSignals   0
     NumProvidedFunctions    0
@@ -238,9 +238,9 @@ Model {
   ModifiedByFormat	  "%<Auto>"
   LastModifiedBy	  "Pascal"
   ModifiedDateFormat	  "%<Auto>"
-  LastModifiedDate	  "Sat Feb 13 18:27:06 2021"
-  RTWModifiedTimeStamp	  535141555
-  ModelVersionFormat	  "1.%<AutoIncrement:19>"
+  LastModifiedDate	  "Mon Feb 15 15:56:06 2021"
+  RTWModifiedTimeStamp	  535305232
+  ModelVersionFormat	  "1.%<AutoIncrement:20>"
   SampleTimeColors	  off
   SampleTimeAnnotations	  off
   LibraryLinkDisplay	  "none"
@@ -1389,7 +1389,7 @@ Model {
       SourceProductBaseCode   "PS"
       ContentPreviewEnabled   off
       Amplitude		      "Vh"
-      Phase		      "Initialph1"
+      Phase		      "Initialph_h"
       Frequency		      "fh"
       SampleTime	      "0"
       Measurements	      "None"
@@ -1416,7 +1416,7 @@ Model {
       SourceProductBaseCode   "PS"
       ContentPreviewEnabled   off
       Amplitude		      "Va"
-      Phase		      "Initialph"
+      Phase		      "Initialph_f"
       Frequency		      "f"
       SampleTime	      "0"
       Measurements	      "None"
@@ -1934,12 +1934,12 @@ Model {
       save		      off
       variable		      "ZData"
       structure		      "S_scope"
-      ZoomFFT		      off
-      StartTime		      "0.05"
+      ZoomFFT		      on
+      StartTime		      "0.06"
       cycles		      "2"
       DisplayStyle	      "4"
       fundamental	      "50"
-      FreqAxis		      on
+      FreqAxis		      off
       MaxFrequency	      "1100"
       frequencyindicesteady   "1"
       RmsSteady		      "1"
