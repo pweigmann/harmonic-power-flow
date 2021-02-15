@@ -1,5 +1,5 @@
 % Skript for running a series of circuit simulations and calculating the
-% corresponding harmonics via FFT
+% corresponding harmonics via FFT. 
 % Source: "SMPS.mdl": Mahmoud Draz, DAI Labor, TU Berlin
 
 % tests evaluation:
@@ -10,22 +10,24 @@
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
+h_max = 150;   % highest harmonic simulated, min = 150
+
+% fundamental voltage source
 f = 50;  % fundamental frequency
 Va = 230;  % fundamental voltage magnitude
-h_max = 550;   % highest harmonic simulated
-Initialph1 = 0.1;  % fundamental voltage phase
-Initialph = 0;  % harmonic voltage phase
+Initialph_f = 20;  % fundamental voltage phase, [degree]
 
-% variable operating conditions
-% fh = 250;  % harmonic frequency
-% Vh = 2.3;  % harmonic voltage magnitude
-
-supply_harmonics = 50*(3:2:h_max/f);
-supply_voltage_h = [2.3, 11.5, 23];
+% harmonic voltage source (variable operating conditions)
+supply_harmonics = 50*(3:2:h_max/f);  % harmonic frequency range
+supply_voltage_h = [23];  % harmonic voltage magnitude range
+Initialph_h = 30;  % harmonic voltage phase, [degree]
 
 % variable evaluation parameters
-t_start = 0.06;
-cycles = 2;
+% time of start of FFT after simulation start
+t_start = 0.06;  
+% number of periods analyzed
+% also defines interharmonic frequency resolution
+cycles = 2;  
 
 results = struct;
 
@@ -56,6 +58,8 @@ for i = (1:length(supply_harmonics))
         I_inj = P2_i(1:L/2+1);  % single sided spectrum
         % double to compensate cutting in half
         I_inj(2:end-1) = 2*I_inj(2:end-1);
+        % phase somehow is shifted by -90 degree (bc of inductive element?)
+        I_inj_phase = angle(ft_i(1:L/2+1))+pi/2;
         
         ft_v = fft(Vs);
         % two-sided spectrum. abs is magnitute of frequency
@@ -63,21 +67,27 @@ for i = (1:length(supply_harmonics))
         Vs_spec = P2_v(1:L/2+1);  % single sided spectrum
         % double to compensate cutting in half
         Vs_spec(2:end-1) = 2*Vs_spec(2:end-1);
+        % phase somehow is shifted by -90 degree and interharmonics wrong
+        Vs_phase = angle(ft_v(1:L/2+1))+pi/2;
 
         % save paramters and results as struct
         results(i, j).V_m_f = Va;
         results(i, j).V_m_h = Vh;
-        results(i, j).V_a_f = Initialph1;
-        results(i, j).V_a_h = Initialph;
+        results(i, j).V_a_f = Initialph_f;
+        results(i, j).V_a_h = Initialph_h;
         results(i, j).f_h = fh;
-        results(i, j).H = H(1:int32(2*h_max/f+1));
-        results(i, j).I_inj = I_inj(1:int32(2*h_max/f+1));
+        results(i, j).H = H(1:int32(cycles*h_max/f+1));
+        results(i, j).I_inj = I_inj(1:int32(cycles*h_max/f+1));
+        results(i, j).I_inj_phase = I_inj_phase(1:int32(cycles*h_max/f+1));
+        results(i, j).Vs_phase = Vs_phase(1:int32(cycles*h_max/f+1));
         results(i, j).t_start = t_start;
         results(i, j).cycles = cycles;
         results(i, j).Fs = T;
         results(i, j).H_max = h_max;
 
         % Plot in time and frequency domain
+        h_plot_max = 21;  % plot harmonics until
+        
         subplot(2,2,1)
         plot(time, Vs)
         title('Supply voltage, time domain')
@@ -85,10 +95,11 @@ for i = (1:length(supply_harmonics))
         ylabel('Voltage V(t)')
         
         subplot(2,2,2)
-        bar(H, Vs_spec)
-        xlim([0, 1e3])
+        bar(H/50, Vs_spec)
+        xlim([0, h_plot_max+1])
+        xticks((1:2:h_plot_max))
         title('Supply voltage, frequency domain')
-        xlabel('f (Hz)')
+        xlabel('Harmonic (fund. = 50 Hz)')
         ylabel('Voltage V(f)')
 
         subplot(2,2,3)
@@ -98,10 +109,11 @@ for i = (1:length(supply_harmonics))
         ylabel('Current I(t)')
 
         subplot(2,2,4)
-        bar(H, I_inj)
-        xlim([0, 1e3])
+        bar(H/50, I_inj)
+        xlim([0, h_plot_max+1])
+        xticks((1:2:h_plot_max))
         title('Current injection, frequency domain')
-        xlabel('f (Hz)')
+        xlabel('Harmonic (fund. = 50 Hz)')
         ylabel('Current I(f)')
     end
 end
