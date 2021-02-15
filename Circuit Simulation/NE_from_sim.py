@@ -1,6 +1,9 @@
 # Importing Simulink simulation results from .mat file and calculating the
 # corresponding coupled and uncoupled Norton equivalents.
 
+# needs exactly 2 levels of variable simulation parameters
+#  default: harmonic supply voltage magnitude V_m_h and frequency f_h
+
 import numpy as np
 import pandas as pd
 from scipy.io import loadmat
@@ -41,8 +44,15 @@ I_inj_h = I_inj.loc(axis=1)[50::data["results"][0, 0].cycles*2]
 
 # calculate Norton Equivalent parameters
 # uncoupled (see Thunberg.1999), 2*n measurements (of 1 freq.) for n harmonics
-
-
+# first step: build difference between the two "measurements", without fund
+V_m1 = data["results"][0, 0].V_m_h
+V_m2 = data["results"][0, 1].V_m_h
+dI = (I_inj_h.loc[V_m2] - I_inj_h.loc[V_m1]).drop(50, axis=1)
+# uncoupled: only diagonal elements needed
+# voltage difference is constant wrt frequency, Norton admittance:
+Y_N_uc = np.diag(dI)/(V_m1 - V_m2)
+# Norton current source:
+I_N_uc = Y_N_uc*V_m1 + I_inj_h.loc[(V_m1, 150), 150:]
 
 # coupled (see Almeida.2010), n+1 measurements (of all freq.) for n harmonics
 
