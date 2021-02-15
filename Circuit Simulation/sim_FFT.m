@@ -7,10 +7,12 @@
 % - compare soon after simulation start vs. late after simulation start
 % - (compare different time-step sizes)
 
+clear all
+
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 350;   % highest harmonic simulated, min = 150
+h_max = 550;   % highest harmonic simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
@@ -24,10 +26,10 @@ Initialph_h = 30;  % harmonic voltage phase, [degree]
 
 % variable evaluation parameters
 % time of start of FFT after simulation start
-t_start = 0.08;  
+t_start = 0.06;  
 % number of periods analyzed
 % also defines interharmonic frequency resolution
-cycles = 3;  
+cycles = 2;  
 
 results = struct;
 

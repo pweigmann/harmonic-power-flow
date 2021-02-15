@@ -6,7 +6,7 @@ Model {
     NumRootInports	    0
     NumRootOutports	    0
     ParameterArgumentNames  ""
-    ComputedModelVersion    "1.20"
+    ComputedModelVersion    "1.21"
     NumModelReferences	    0
     NumTestPointedSignals   0
     NumProvidedFunctions    0
@@ -238,9 +238,9 @@ Model {
   ModifiedByFormat	  "%<Auto>"
   LastModifiedBy	  "Pascal"
   ModifiedDateFormat	  "%<Auto>"
-  LastModifiedDate	  "Mon Feb 15 15:56:06 2021"
-  RTWModifiedTimeStamp	  535305232
-  ModelVersionFormat	  "1.%<AutoIncrement:20>"
+  LastModifiedDate	  "Mon Feb 15 17:06:31 2021"
+  RTWModifiedTimeStamp	  535306880
+  ModelVersionFormat	  "1.%<AutoIncrement:21>"
   SampleTimeColors	  off
   SampleTimeAnnotations	  off
   LibraryLinkDisplay	  "none"
@@ -1934,7 +1934,7 @@ Model {
       save		      off
       variable		      "ZData"
       structure		      "S_scope"
-      ZoomFFT		      on
+      ZoomFFT		      off
       StartTime		      "0.06"
       cycles		      "2"
       DisplayStyle	      "4"
