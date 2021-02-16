@@ -207,6 +207,10 @@ for i = (1:length(supply_harmonics))
     end
 end
 
+% calc NE, uncoupled, h = 3
+
+
+
 % export results
 all = struct("results_f", results_f, "results_h", results_h);
 save('circuit_sim.mat', 'all');

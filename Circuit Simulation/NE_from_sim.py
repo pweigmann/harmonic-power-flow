@@ -15,6 +15,7 @@ dh = data["all"].results_h  # harmonic simulation results
 
 # convert to multi-index DataFrame
 # TODO: enable single measurement support or raise error if only one measurement
+#  change angles consistently to degree or rad
 supply_f = []
 for n in dh:
     supply_f.append(n[0].f_h)
@@ -37,13 +38,16 @@ spectrum = pd.Int64Index(dh[0, 0].H.astype(int), name="Frequency",
 I_inj_complete = pd.DataFrame(np.zeros((len(supply_f)*len(supply_v_m),
                                         len(dh[0, 0].H))), index=multi_idx,
                               columns=spectrum)
-
+V_supply = pd.DataFrame(np.zeros((len(supply_f)*len(supply_v_m), 1)),
+                        index=multi_idx)
 # iterate through harmonic measurements
 for i in dh:
     for j in i:
         # write I_inj of corresponding voltage to DataFrame
         I_inj_complete.loc[(j.V_m_h, j.f_h, j.V_a_h)] = \
             j.I_inj*np.exp(1j*j.I_inj_phase)
+        V_supply.loc[(j.V_m_h, j.f_h, j.V_a_h)] = \
+            j.V_m_h*np.exp(1j*j.V_a_h*np.pi/180)
 
 # iterate through fundamental measurements
 for s in df:
@@ -86,6 +90,20 @@ I_N_f = Y_N_f*V_f_m1 + I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]
 I_N_uc = I_N_f.append(I_N_h.loc[30])
 Y_N_uc = Y_N_f.append(Y_N_h)
 
+# test (using measurement 1)
+I_inj_test = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m1).append(
+    V_supply.loc[2.3])))
+I_inj_m1 = pd.Series(I_inj.loc[(230, 50, 0), [50]]).append(
+    pd.Series(np.diagonal(I_inj.loc[2.3], 1), index=supply_f))
+res = I_inj_test - I_inj_m1  # h=1,3 correct, others wrong TODO: find mistake!
+# test (using measurement 2)
+I_inj_test_2 = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m2).append(
+    V_supply.loc[23])))
+I_inj_m2 = pd.Series(I_inj.loc[(230, 50, 10), [50]]).append(
+    pd.Series(np.diagonal(I_inj.loc[23], 1), index=supply_f))
+res2 = I_inj_test_2 - I_inj_m2  # again, h=1,3 correct, others wrong
 
+
+# I_inj_m1.rename_axis(axis="Frequency", inplace=True)
 # coupled (see Almeida.2010), n+1 measurements (of all freq.) for n harmonics
 
