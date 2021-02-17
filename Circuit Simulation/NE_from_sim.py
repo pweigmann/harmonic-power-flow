@@ -8,14 +8,28 @@ import numpy as np
 import pandas as pd
 from scipy.io import loadmat
 
+# TODO:  change angles consistently to degree or rad or go full cartesian
+
 # import from .mat file
 data = loadmat('circuit_sim.mat', squeeze_me=True, struct_as_record=False)
 df = data["all"].results_f  # fundamental simulation results
 dh = data["all"].results_h  # harmonic simulation results
 
+''' Data structure - harmonic (dh) and fundamental (df)
+dh[a, b]: a is index for harmonic, varying harmonic voltage source frequency
+          b is index for measurement, varying harmonic voltage source magnitude
+          Minimum values for script to work: a > 0, b > 0 
+          Example: dh[0, 1] means first harmonic frequency (= 150), 
+                   second measurement (e.g. V_m_h = 23).
+df[c]:    c is index for measurement, varying fundamental voltage source angle
+'''
+# check for imported data size
+if len(dh[0, :]) < 2:
+    raise ValueError('At least 2 measurements needed for script to work.')
+elif len(dh[:, 0]) < 2:
+    raise ValueError('At least 2 harmonics needed for script to work.')
+
 # convert to multi-index DataFrame
-# TODO: enable single measurement support or raise error if only one measurement
-#  change angles consistently to degree or rad
 supply_f = []
 for n in dh:
     supply_f.append(n[0].f_h)
@@ -91,21 +105,27 @@ I_N_uc = I_N_f.append(I_N_h)
 Y_N_uc = Y_N_f.append(Y_N_h)
 
 # test (using measurement 1)
+# calculate I_inj with NE
 I_inj_test = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m1).append(
     V_supply.loc[dh[0, 0].V_m_h])))
-I_inj_m1 = pd.Series(I_inj.loc[(df[0].V_m_f, 50, 0), [50]]).append(
+# take I_inj from circuit sim
+I_inj_m1 = pd.Series(I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]).append(
     pd.Series(np.diagonal(I_inj.loc[dh[0, 0].V_m_h], 1), index=supply_f))
-res = I_inj_test - I_inj_m1
+err = I_inj_test - I_inj_m1
 # test (using measurement 2)
 I_inj_test_2 = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m2).append(
     V_supply.loc[dh[0, 1].V_m_h])))
-I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, 10), [50]]).append(
+I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, df[1].V_a_f), [50]]).append(
     pd.Series(np.diagonal(I_inj.loc[dh[0, 1].V_m_h], 1), index=supply_f))
-res2 = I_inj_test_2 - I_inj_m2
+err2 = I_inj_test_2 - I_inj_m2
 
-if np.linalg.norm((res, res2), np.inf) > 1e-6:
-    print("Warning: Residual test failed!")
+if np.linalg.norm((err, err2), np.inf) > 1e-6:
+    print("Warning: Injections test failed!")
 
+print("I_N_uc:")
+print(I_N_uc)
+print("Y_N_uc:")
+print(Y_N_uc)
 
 # I_inj_m1.rename_axis(axis="Frequency", inplace=True)
 # coupled (see Almeida.2010), n+1 measurements (of all freq.) for n harmonics
