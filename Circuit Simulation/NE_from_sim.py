@@ -72,7 +72,7 @@ V_h_m2 = dh[0, 1].V_m_h*np.exp(1j*dh[0, 1].V_a_h*np.pi/180)
 Y_N_h = pd.Series(np.diag(dI_h)/(V_h_m1 - V_h_m2), index=supply_f)
 Y_N_h.rename_axis(index="Frequency", inplace=True)
 # Norton current source, harmonic:
-I_N_h = Y_N_h*V_h_m1 + I_inj.loc[(dh[0, 0].V_m_h, 150), 150:]
+I_N_h = Y_N_h*V_h_m1 + np.diag(I_inj.loc[dh[0, 0].V_m_h, 150:])
 
 
 # build difference between the two measurements, only fund, m2 - m1
@@ -87,21 +87,24 @@ Y_N_f = dI_f[[50]]/(V_f_m1 - V_f_m2)  # Norton admittance, fundamental
 I_N_f = Y_N_f*V_f_m1 + I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]
 
 # Final Norton parameters, uncoupled model:
-I_N_uc = I_N_f.append(I_N_h.loc[30])
+I_N_uc = I_N_f.append(I_N_h)
 Y_N_uc = Y_N_f.append(Y_N_h)
 
 # test (using measurement 1)
 I_inj_test = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m1).append(
-    V_supply.loc[2.3])))
-I_inj_m1 = pd.Series(I_inj.loc[(230, 50, 0), [50]]).append(
-    pd.Series(np.diagonal(I_inj.loc[2.3], 1), index=supply_f))
-res = I_inj_test - I_inj_m1  # h=1,3 correct, others wrong TODO: find mistake!
+    V_supply.loc[dh[0, 0].V_m_h])))
+I_inj_m1 = pd.Series(I_inj.loc[(df[0].V_m_f, 50, 0), [50]]).append(
+    pd.Series(np.diagonal(I_inj.loc[dh[0, 0].V_m_h], 1), index=supply_f))
+res = I_inj_test - I_inj_m1
 # test (using measurement 2)
 I_inj_test_2 = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m2).append(
-    V_supply.loc[23])))
-I_inj_m2 = pd.Series(I_inj.loc[(230, 50, 10), [50]]).append(
-    pd.Series(np.diagonal(I_inj.loc[23], 1), index=supply_f))
-res2 = I_inj_test_2 - I_inj_m2  # again, h=1,3 correct, others wrong
+    V_supply.loc[dh[0, 1].V_m_h])))
+I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, 10), [50]]).append(
+    pd.Series(np.diagonal(I_inj.loc[dh[0, 1].V_m_h], 1), index=supply_f))
+res2 = I_inj_test_2 - I_inj_m2
+
+if np.linalg.norm((res, res2), np.inf) > 1e-6:
+    print("Warning: Residual test failed!")
 
 
 # I_inj_m1.rename_axis(axis="Frequency", inplace=True)
