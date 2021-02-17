@@ -16,7 +16,8 @@ h_max = 550;   % highest harmonic simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
-Va = 200;  % fundamental voltage magnitude
+supply_voltage_f = [230, 200]; %
+Va = 230;  % fundamental voltage magnitude
 Initialph_f_range = [0, 10];  % fundamental voltage phase, [degree]
 
 % harmonic voltage source (variable operating conditions)
@@ -41,9 +42,10 @@ H = (0:(L/2))/L/T;  % spectrum
 results_f = struct;
 results_h = struct;
 
-% simulate with only fundamental source, vary initial phase
+% simulate with only fundamental source, vary voltage phase and magnitude
 for k = (1:length(Initialph_f_range))
     Initialph_f = Initialph_f_range(k);
+    Va = supply_voltage_f(k);
     Vh = 0;
     fh = 0;
     

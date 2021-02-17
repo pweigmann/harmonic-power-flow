@@ -1,9 +1,6 @@
 # Importing SimuLink simulation results from .mat file and calculating the
 # corresponding coupled and uncoupled Norton equivalents.
 
-# needs exactly 2 levels of variable simulation parameters
-#  default: harmonic supply voltage magnitude V_m_h and frequency f_h
-
 import numpy as np
 import pandas as pd
 from scipy.io import loadmat
@@ -18,12 +15,12 @@ dh = data["all"].results_h  # harmonic simulation results
 ''' Data structure - harmonic (dh) and fundamental (df)
 dh[a, b]: a is index for harmonic, varying harmonic voltage source frequency
           b is index for measurement, varying harmonic voltage source magnitude
-          Minimum values for script to work: a > 0, b > 0 
-          Example: dh[0, 1] means first harmonic frequency (= 150), 
+          Minimum values for uncoupled script to work: a > 0, b > 0 
+          Example: dh[0, 1] means first harmonic frequency (f_h = 150), 
                    second measurement (e.g. V_m_h = 23).
 df[c]:    c is index for measurement, varying fundamental voltage source angle
 '''
-# check for imported data size
+# check imported data size
 if len(dh[0, :]) < 2:
     raise ValueError('At least 2 measurements needed for script to work.')
 elif len(dh[:, 0]) < 2:
@@ -122,11 +119,46 @@ err2 = I_inj_test_2 - I_inj_m2
 if np.linalg.norm((err, err2), np.inf) > 1e-6:
     print("Warning: Injections test failed!")
 
-print("I_N_uc:")
-print(I_N_uc)
-print("Y_N_uc:")
-print(Y_N_uc)
+# print("I_N_uc:")
+# print(I_N_uc)
+# print("Y_N_uc:")
+# print(Y_N_uc)
 
-# I_inj_m1.rename_axis(axis="Frequency", inplace=True)
+# calculate Norton Equivalent parameters
 # coupled (see Almeida.2010), n+1 measurements (of all freq.) for n harmonics
+# only one value for V_m_h needed (aka. one "measurement" of uncoupled NE)
+freq = [50] + supply_f  # all frequencies used as supply voltages
+N = len(freq)  # number of frequencies of which NE can be calculated
+
+# constant V matrix for calculating coupled NEs
+V_mes = pd.DataFrame(np.zeros((N+1, N)), index=freq + [50], columns=freq)
+V_mes["I"] = np.ones((N+1, 1))
+V_mes[50] = V_f_m1  # fundamental voltage constant throughout measurements...
+# ...except for N+1th. Second measurement at fundamental frequency placed at end
+V_mes.iloc[-1, 0] = V_f_m2
+# fill in harmonic supply voltages diagonally
+for h in supply_f:
+    V_mes.loc[h, h] = V_supply.loc[(supply_v_m[0], h, supply_v_a[0]), 0]
+V_inv = np.linalg.inv(V_mes)
+
+# DataFrame to store results
+YI_N = pd.DataFrame(np.zeros((N+1, N)), index=freq + ["I"], columns=freq)
+
+# sort and slice I_inj, so the columns can be used directly
+# first fund. I_inj
+d1 = I_inj.loc[[(df[0].V_m_f, 50, df[0].V_a_f)], freq]
+# harmonic I_inj
+d2 = I_inj.loc[(dh[0, 0].V_m_h, slice(None), dh[0, 0].V_a_h), freq]
+# second fund. I_inj
+d3 = I_inj.loc[[(df[1].V_m_f, 50, df[1].V_a_f)], freq]
+# concatenate DataFrames in correct order
+I_inj_c = d1.append([d2, d3])
+# evaluate NE
+YI_N[freq] = V_inv.dot(I_inj_c[freq])
+
+# final coupled Norton Equivalents
+Y_N_c = YI_N.iloc[:-1]
+I_N_c = YI_N.iloc[-1]  # (fundamental current source equal to uncoupled)
+
+
 
