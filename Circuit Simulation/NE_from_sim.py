@@ -160,5 +160,6 @@ YI_N[freq] = V_inv.dot(I_inj_c[freq])
 Y_N_c = YI_N.iloc[:-1]
 I_N_c = YI_N.iloc[-1]  # (fundamental current source equal to uncoupled)
 
-
-
+# test coupled NE for h = 5
+V_uc_test5 = np.array([230, 0, 2.3])
+I_inj_c_test5 = I_N_c - Y_N_c.dot(V_uc_test5)  # much too large
