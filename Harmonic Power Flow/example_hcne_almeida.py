@@ -12,7 +12,7 @@ import pandas as pd
 rad = 2*np.pi/360  # change degree to radians
 
 # measurement 1
-V_f_1 = 1*np.exp(rad*10*1j)
+V_f_1 = 1
 V_3_1 = 0
 V_5_1 = 0
 # results 1
@@ -47,22 +47,22 @@ I_f_4 = 0.95*np.exp(-5*rad*1j)
 I_3_4 = 0.35*np.exp(-10*rad*1j)
 I_5_4 = 0.15*np.exp(-30*rad*1j)
 
-# voltages matrix
-V = np.array([
-    [V_f_1, V_3_1, V_5_1, 1],
-    [V_f_2, V_3_2, V_5_2, 1],
-    [V_f_3, V_3_3, V_5_3, 1],
-    [V_f_4, V_3_4, V_5_4, 1]
+# voltages matrix (corrected signum mistake in Almeida paper, eq. 8!)
+V = -np.array([
+    [V_f_1, V_3_1, V_5_1, -1],
+    [V_f_2, V_3_2, V_5_2, -1],
+    [V_f_3, V_3_3, V_5_3, -1],
+    [V_f_4, V_3_4, V_5_4, -1]
 ])
 
 # currents vector, fundamental frequency
-I = np.array([I_f_1, I_f_2, I_f_3, I_f_4])
+I_f = np.array([I_f_1, I_f_2, I_f_3, I_f_4])
 
 # invert voltages matrix
 V_inv = np.linalg.inv(V)
 
 # solve for Norton admittances and current source, fundamental frequency
-Y_I_Norton_f = V_inv.dot(I)  # NOT the same results as in the paper...
+Y_I_Norton_f = V_inv.dot(I_f)  # with correction, same results
 
 # let's try the next step:
 # calculate harmonics with Norton parameters as mentioned in the paper
@@ -77,6 +77,13 @@ I_N_paper = np.array([
     1.515*np.exp(-135.72*rad*1j),
     0.682*np.exp(158.49*rad*1j)
 ])
+
+# test if these NE return original results when original voltage applied
+I_test_m1 = I_N_paper - Y_N_paper.dot(np.array([1, 0, 0]))
+I_test_m2 = I_N_paper - Y_N_paper.dot(np.array([V_f_2, V_3_2, V_5_2]))
+I_test_m3 = I_N_paper - Y_N_paper.dot(np.array([V_f_3, V_3_3, V_5_3]))
+I_test_m4 = I_N_paper - Y_N_paper.dot(np.array([V_f_4, V_3_4, V_5_4]))
+# --> they do, correct NEs
 
 # line impedance and admittance (scaled with frequency...?)
 # (now scaled, so THD_v matched the paper)
