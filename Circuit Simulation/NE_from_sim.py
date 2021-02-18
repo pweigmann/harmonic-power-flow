@@ -6,6 +6,9 @@ import pandas as pd
 from scipy.io import loadmat
 
 # TODO:  change angles consistently to degree or rad or go full cartesian
+#  create and use V_supply in same shape and with same index as I_inj
+#  join all data initially by using loop, so it can be accessed vectorized
+#  restructure as functions
 
 # import from .mat file
 data = loadmat('circuit_sim.mat', squeeze_me=True, struct_as_record=False)
@@ -20,6 +23,7 @@ dh[a, b]: a is index for harmonic, varying harmonic voltage source frequency
                    second measurement (e.g. V_m_h = 23).
 df[c]:    c is index for measurement, varying fundamental voltage source angle
 '''
+
 # check imported data size
 if len(dh[0, :]) < 2:
     raise ValueError('At least 2 measurements needed for script to work.')
@@ -117,7 +121,7 @@ I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, df[1].V_a_f), [50]]).append(
 err2 = I_inj_test_2 - I_inj_m2
 
 if np.linalg.norm((err, err2), np.inf) > 1e-6:
-    print("Warning: Injections test failed!")
+    print("Warning: uncoupled NE test failed!")
 
 # print("I_N_uc:")
 # print(I_N_uc)
@@ -132,13 +136,14 @@ N = len(freq)  # number of frequencies of which NE can be calculated
 
 # constant V matrix for calculating coupled NEs
 V_mes = pd.DataFrame(np.zeros((N+1, N)), index=freq + [50], columns=freq)
-V_mes["I"] = np.ones((N+1, 1))
+V_mes["I"] = -np.ones((N+1, 1))
 V_mes[50] = V_f_m1  # fundamental voltage constant throughout measurements...
 # ...except for N+1th. Second measurement at fundamental frequency placed at end
 V_mes.iloc[-1, 0] = V_f_m2
 # fill in harmonic supply voltages diagonally
 for h in supply_f:
     V_mes.loc[h, h] = V_supply.loc[(supply_v_m[0], h, supply_v_a[0]), 0]
+V_mes = -V_mes
 V_inv = np.linalg.inv(V_mes)
 
 # DataFrame to store results
@@ -153,13 +158,20 @@ d2 = I_inj.loc[(dh[0, 0].V_m_h, slice(None), dh[0, 0].V_a_h), freq]
 d3 = I_inj.loc[[(df[1].V_m_f, 50, df[1].V_a_f)], freq]
 # concatenate DataFrames in correct order
 I_inj_c = d1.append([d2, d3])
-# evaluate NE
+# evaluate NE, Y_N are added transposed
 YI_N[freq] = V_inv.dot(I_inj_c[freq])
 
-# final coupled Norton Equivalents
-Y_N_c = YI_N.iloc[:-1]
+# final coupled Norton Equivalents, transpose Y_N back
+Y_N_c = np.transpose(YI_N.iloc[:-1])  # (Y_N_ff equal to uncoupled)
 I_N_c = YI_N.iloc[-1]  # (fundamental current source equal to uncoupled)
 
 # test coupled NE for h = 5
-V_uc_test5 = np.array([230, 0, 2.3])
-I_inj_c_test5 = I_N_c - Y_N_c.dot(V_uc_test5)  # much too large
+V_uc_test5 = np.zeros(len(freq), dtype=complex)
+V_uc_test5[0] = V_f_m1
+V_uc_test5[2] = V_h_m1
+I_inj_c_test5 = I_N_c - Y_N_c.dot(V_uc_test5)  # calculate I_inj with NE
+err_c = I_inj_c_test5 - I_inj.loc[(dh[1, 0].V_m_h, dh[1, 0].f_h,
+                                   dh[1, 0].V_a_h)]
+# --> correct!
+if np.linalg.norm(err_c, np.inf) > 1e-6:
+    print("Warning: coupled NE test failed!")
