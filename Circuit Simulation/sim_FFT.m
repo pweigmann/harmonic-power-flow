@@ -12,7 +12,7 @@ clear all
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 250;   % highest harmonic simulated, min = 150
+h_max = 350;   % highest harmonic simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
@@ -22,8 +22,8 @@ Initialph_f_range = [0, 10];  % fundamental voltage phase, [degree]
 
 % harmonic voltage source (variable operating conditions)
 supply_harmonics = 50*(3:2:h_max/f);  % harmonic frequency range
-supply_voltage_h = [2.3, 23];  % harmonic voltage magnitude range
-Initialph_h = 0;  % harmonic voltage phase, [degree]
+supply_voltage_h = [2.3, 11.5,23];  % harmonic voltage magnitude range
+Initialph_h = 20;  % harmonic voltage phase, [degree]
 
 % variable evaluation parameters
 % time of start of FFT after simulation start
@@ -208,10 +208,6 @@ for i = (1:length(supply_harmonics))
         ylabel('Current I(f)')
     end
 end
-
-% calc NE, uncoupled, h = 3
-
-
 
 % export results
 all = struct("results_f", results_f, "results_h", results_h);

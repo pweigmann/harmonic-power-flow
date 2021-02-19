@@ -230,3 +230,6 @@ def harmonic_mismatch(V, Y, buses):
 # current_injections()
 
 f_h = harmonic_mismatch(V_h, Y_h, buses)
+
+# import Norton Equivalents
+NE = pd.read_csv("~/Git/harmonic-power-flow/Circuit Simulation/NE.csv")

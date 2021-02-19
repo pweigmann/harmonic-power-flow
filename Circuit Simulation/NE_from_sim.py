@@ -175,3 +175,16 @@ err_c = I_inj_c_test5 - I_inj.loc[(dh[1, 0].V_m_h, dh[1, 0].f_h,
 # --> correct!
 if np.linalg.norm(err_c, np.inf) > 1e-6:
     print("Warning: coupled NE test failed!")
+
+# export to file
+multi_idx_exp = pd.MultiIndex.from_arrays([
+    len(freq)*["Y_N_c"] + ["I_N_c", "Y_N_uc", "I_N_uc"],
+    freq + [0, 0, 0]])
+NE = pd.DataFrame(np.zeros((len(freq)+3, len(freq))),
+                  index=multi_idx_exp, dtype=complex, columns=freq)
+NE.loc["Y_N_c"] = Y_N_c.values  # TODO: check if should be transposed
+NE.loc["I_N_c", 0] = I_N_c.values
+NE.loc["Y_N_uc", 0] = Y_N_uc.values
+NE.loc["I_N_uc", 0] = I_N_uc.values
+
+NE.to_csv("NE.csv")
