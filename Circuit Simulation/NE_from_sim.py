@@ -123,10 +123,6 @@ err2 = I_inj_test_2 - I_inj_m2
 if np.linalg.norm((err, err2), np.inf) > 1e-6:
     print("Warning: uncoupled NE test failed!")
 
-# print("I_N_uc:")
-# print(I_N_uc)
-# print("Y_N_uc:")
-# print(Y_N_uc)
 
 # calculate Norton Equivalent parameters
 # coupled (see Almeida.2010), n+1 measurements (of all freq.) for n harmonics
@@ -172,17 +168,16 @@ V_uc_test5[2] = V_h_m1
 I_inj_c_test5 = I_N_c - Y_N_c.dot(V_uc_test5)  # calculate I_inj with NE
 err_c = I_inj_c_test5 - I_inj.loc[(dh[1, 0].V_m_h, dh[1, 0].f_h,
                                    dh[1, 0].V_a_h)]
-# --> correct!
 if np.linalg.norm(err_c, np.inf) > 1e-6:
     print("Warning: coupled NE test failed!")
 
 # export to file
 multi_idx_exp = pd.MultiIndex.from_arrays([
     len(freq)*["Y_N_c"] + ["I_N_c", "Y_N_uc", "I_N_uc"],
-    freq + [0, 0, 0]])
+    freq + [0, 0, 0]], names=["Parameter", "Frequency"])
 NE = pd.DataFrame(np.zeros((len(freq)+3, len(freq))),
                   index=multi_idx_exp, dtype=complex, columns=freq)
-NE.loc["Y_N_c"] = Y_N_c.values  # TODO: check if should be transposed
+NE.loc["Y_N_c"] = Y_N_c.to_numpy()
 NE.loc["I_N_c", 0] = I_N_c.values
 NE.loc["Y_N_uc", 0] = Y_N_uc.values
 NE.loc["I_N_uc", 0] = I_N_uc.values

@@ -6,7 +6,8 @@
 % - compare many cycles vs. few or only one cycle for FFT
 % - compare soon after simulation start vs. late after simulation start
 % - (compare different time-step sizes)
-
+% - compare NE for different operating conditions
+    
 clear all
 
 % fixed parameters
@@ -105,6 +106,7 @@ for k = (1:length(Initialph_f_range))
     subplot(2,2,2)
     bar(H/50, Vs_spec)
     xlim([0, h_plot_max+1])
+    ylim([0, 240])
     xticks((1:2:h_plot_max))
     title('Supply voltage, frequency domain')
     xlabel('Harmonic (fund. = 50 Hz)')
@@ -188,6 +190,7 @@ for i = (1:length(supply_harmonics))
         subplot(2,2,2)
         bar(H/50, Vs_spec)
         xlim([0, h_plot_max+1])
+        ylim([0, 240])
         xticks((1:2:h_plot_max))
         title('Supply voltage, frequency domain')
         xlabel('Harmonic (fund. = 50 Hz)')

@@ -7,12 +7,15 @@ from scipy.sparse.linalg import *
 import matplotlib.pyplot as plt
 import sys
 
+# TODO: unify writing harmonics as frequency or multiple of fundamental freq.
 
 # global variables
 PU_FACTOR = 1000
 HARMONICS = [1, 5, 7]
+HARMONICS_FREQ = [50 * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
+COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
 
 # helper definitions
 idx = pd.IndexSlice
@@ -195,16 +198,29 @@ K harmonics considered (excluding fundamental)
 '''
 
 
-def g(v, bus):
-    g = 0.3*(v.at[(1, bus), "V_m"]**3)*np.exp(3j*v.at[(1, bus), "V_p"]) +\
-        0.3*(v.at[(5, bus), "V_m"]**2)*np.exp(3j*v.at[(5, bus), "V_p"])
-    return g
+def import_Norton_Equivalents(file_path, coupled):
+    # import Norton Equivalents (one type of device for now)
+    # TODO: generalize for multiple nonlinear devices
+    NE_SMPS = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
+    # change column type from str to int
+    NE_SMPS.columns = NE_SMPS.columns.astype(int)
+    # filter for harmonics considered (TODO: also filter Y_N_c rows)
+    NE_SMPS = NE_SMPS[HARMONICS_FREQ]
+    # values are imported as strings, transform to complex
+    # (alternative: use HDF5 instead of csv)
+    NE_SMPS = NE_SMPS.apply(lambda col: col.apply(
+        lambda val: complex(val.strip('()'))))
+    if coupled:
+        return NE_SMPS.loc["I_N_c"], NE_SMPS.loc["Y_N_c"]
+    else:
+        return NE_SMPS.loc["I_N_uc"], NE_SMPS.loc["Y_N_uc"]
 
 
-def current_injections(busID, V, Y_N, I_N):
-    # TODO: import Norton parameters from file, depending on type of device
+def current_injections(busID, V):
     # busID, Y_N and I_N can all be passed/imported together
     # dimensions need to fit, crop Y_N and I_N as necessary
+    (I_N, Y_N) = import_Norton_Equivalents(
+        "~/Git/harmonic-power-flow/Circuit Simulation/NE.csv", COUPLED_NE)
     V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
     I_inj = I_N - spsolve(Y_N, V_h)
     return I_inj
@@ -230,6 +246,4 @@ def harmonic_mismatch(V, Y, buses):
 # current_injections()
 
 f_h = harmonic_mismatch(V_h, Y_h, buses)
-
-# import Norton Equivalents
-NE = pd.read_csv("~/Git/harmonic-power-flow/Circuit Simulation/NE.csv")
+#I_inj = current_injections(bus4, V_h, Y_N, I_N)
