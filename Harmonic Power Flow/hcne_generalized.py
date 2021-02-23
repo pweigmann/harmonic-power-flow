@@ -8,9 +8,11 @@ import matplotlib.pyplot as plt
 import sys
 
 # TODO: unify writing harmonics as frequency or multiple of fundamental freq.
+#  decide where to transform to pu system, calculation correct?
 
 # global variables
-PU_FACTOR = 1000
+BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
+BASE_VOLTAGE = 230
 HARMONICS = [1, 5, 7]
 HARMONICS_FREQ = [50 * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
@@ -19,6 +21,9 @@ COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
 
 # helper definitions
 idx = pd.IndexSlice
+# pu system
+base_current = 1000*BASE_POWER/BASE_VOLTAGE
+base_admittance = base_current/BASE_VOLTAGE
 
 
 # functions to change from algebraic to polar form
@@ -31,7 +36,6 @@ def A2P(x):
 
 
 # infrastructure (TODO: import infrastructure from file)
-# S needed? what about X_shunt?
 # df for constant properties of buses
 buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
                                   [2, "PQ", "lin_load_1", None, 0],
@@ -117,7 +121,7 @@ def init_fund_state_vec(V):
 
 def fund_mismatch(buses, V, Y):
     V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-    S = (buses["P1"] + 1j*buses["Q1"])/PU_FACTOR
+    S = (buses["P1"] + 1j*buses["Q1"])/BASE_POWER
     mismatch = np.array(V_vec*np.conj(Y.dot(V_vec)) + S, dtype="c16")
     # again following PyPSA conventions
     f = np.r_[mismatch.real[1:], mismatch.imag[1:]]
@@ -198,31 +202,42 @@ K harmonics considered (excluding fundamental)
 '''
 
 
-def import_Norton_Equivalents(file_path, coupled):
-    # import Norton Equivalents (one type of device for now)
+def import_Norton_Equivalents(coupled):
     # TODO: generalize for multiple nonlinear devices
+    #  import NEs from other sources or input manually
+    #  chose alternative format (e.g. HDF5 instead of csv)
+
+    # import Norton Equivalents (one type of device for now)
+    # hardcoded. idea: always just this one file
+    file_path = "~/Git/harmonic-power-flow/Circuit Simulation/NE.csv"
     NE_SMPS = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
     # change column type from str to int
     NE_SMPS.columns = NE_SMPS.columns.astype(int)
-    # filter for harmonics considered (TODO: also filter Y_N_c rows)
+    # filter all columns for harmonics considered
     NE_SMPS = NE_SMPS[HARMONICS_FREQ]
     # values are imported as strings, transform to complex
-    # (alternative: use HDF5 instead of csv)
     NE_SMPS = NE_SMPS.apply(lambda col: col.apply(
         lambda val: complex(val.strip('()'))))
+
+    # change to pu system
+    I_N_c = NE_SMPS.loc["I_N_c"]/base_current
+    # also filter Y_N_c rows by harmonics considered
+    Y_N_c = NE_SMPS.loc[("Y_N_c", HARMONICS_FREQ), HARMONICS_FREQ] / \
+        base_admittance
+    I_N_uc = NE_SMPS.loc["I_N_uc"]/base_current
+    Y_N_uc = NE_SMPS.loc["Y_N_uc"]/base_admittance
+
     if coupled:
-        return NE_SMPS.loc["I_N_c"], NE_SMPS.loc["Y_N_c"]
+        return I_N_c, Y_N_c
     else:
-        return NE_SMPS.loc["I_N_uc"], NE_SMPS.loc["Y_N_uc"]
+        return I_N_uc, Y_N_uc
 
 
 def current_injections(busID, V):
-    # busID, Y_N and I_N can all be passed/imported together
-    # dimensions need to fit, crop Y_N and I_N as necessary
-    (I_N, Y_N) = import_Norton_Equivalents(
-        "~/Git/harmonic-power-flow/Circuit Simulation/NE.csv", COUPLED_NE)
+    # busID from function?
+    (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
     V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
-    I_inj = I_N - spsolve(Y_N, V_h)
+    I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)
     return I_inj
 
 
@@ -230,8 +245,8 @@ def harmonic_mismatch(V, Y, buses):
     # power mismatch
     # add all linear buses to dS except slack (# = m-2)
     V_vec = 0
-    dS = buses.P1[buses["type"] != "nonlinear"][1:]/PU_FACTOR
-    + 1j*buses.Q1[buses["type"] != "nonlinear"][1:]/PU_FACTOR
+    dS = buses.P1[buses["type"] != "nonlinear"][1:]/BASE_POWER
+    + 1j*buses.Q1[buses["type"] != "nonlinear"][1:]/BASE_POWER
     # current mismatch
     # at fundamental frequency for nonlinear buses
     dI_1 = Y*V_vec
@@ -246,4 +261,6 @@ def harmonic_mismatch(V, Y, buses):
 # current_injections()
 
 f_h = harmonic_mismatch(V_h, Y_h, buses)
-#I_inj = current_injections(bus4, V_h, Y_N, I_N)
+I_inj = current_injections(3, V_h)
+
+
