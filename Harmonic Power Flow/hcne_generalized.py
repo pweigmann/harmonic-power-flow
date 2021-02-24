@@ -4,11 +4,12 @@
 import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import *
+from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
-import sys
 
 # TODO: unify writing harmonics as frequency or multiple of fundamental freq.
 #  decide where to transform to pu system, calculation correct?
+#  test for multiple nonlinear buses as well as only one nonlinear bus
 
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
@@ -24,6 +25,9 @@ idx = pd.IndexSlice
 # pu system
 base_current = 1000*BASE_POWER/BASE_VOLTAGE
 base_admittance = base_current/BASE_VOLTAGE
+# number of harmonics (without fundamental)
+K = len(HARMONICS) - 1
+
 
 
 # functions to change from algebraic to polar form
@@ -55,6 +59,9 @@ buses_power["P1"] = [0, 100, 0, 250]
 buses_power["Q1"] = [0, 100, 0, 100]
 # combined df for buses
 buses = pd.concat([buses_const, buses_power], axis=1)
+# find first nonlinear bus FIXME: start counting from 0 or 1? atm mixed
+m = min(buses.index[buses["type"] == "nonlinear"])
+n = len(buses)
 
 lines_fu = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                   [2, 2, 3, 0.02, 0.08],
@@ -205,7 +212,7 @@ K harmonics considered (excluding fundamental)
 def import_Norton_Equivalents(coupled):
     # TODO: generalize for multiple nonlinear devices
     #  import NEs from other sources or input manually
-    #  chose alternative format (e.g. HDF5 instead of csv)
+    #  chose alternative format (e.g. HDF5 or pickle instead of csv)
 
     # import Norton Equivalents (one type of device for now)
     # hardcoded. idea: always just this one file
@@ -234,11 +241,39 @@ def import_Norton_Equivalents(coupled):
 
 
 def current_injections(busID, V):
-    # busID from function?
+    # TODO: enhance for multiple nonlinear buses
     (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
     V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
-    I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)
+    I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not ideal
     return I_inj
+
+
+def current_balance():
+    '''
+    Fundamental current balance only for nonlinear buses (n-m+1)
+    Harmonic current balance for all buses and all harmonics (n*K)
+    :return: vector of n-m+1 + nK complex current balances
+    '''
+
+    # fundamental admittance for nonlinear buses
+    Y_f = Y_h.loc[1, m:]
+    # fundamental voltage for all buses
+    V_f = V_h.loc[1, "V_m"]* np.exp(1j*V_h.loc[1, "V_a"])
+    # current injections at nonlinear buses. FIXME: only works for one bus
+    I_i = current_injections(3, V_h)
+    # fundamental current balance
+    dI_f = np.squeeze(Y_f).dot(V_f) - I_i[50]
+
+    # construct V and Y from list of sub-arrays except fund
+    # sparse matrix would be better
+    Y = block_diag(*[Y_h.loc[i] for i in HARMONICS[1:]])
+    V = V_h.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V_h.loc[HARMONICS[1:], "V_a"])
+    I_h = np.concatenate([np.array(
+        [*np.zeros(n-1), i]) for i in I_i.loc[HARMONICS_FREQ[1:]]])
+    dI_h = V.dot(Y) - I_h
+    # final current balance vector
+    dI = np.array([dI_f, *dI_h])
+    return dI
 
 
 def harmonic_mismatch(V, Y, buses):

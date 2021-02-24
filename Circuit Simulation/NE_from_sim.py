@@ -162,6 +162,7 @@ Y_N_c = np.transpose(YI_N.iloc[:-1])  # (Y_N_ff equal to uncoupled)
 I_N_c = YI_N.iloc[-1]  # (fundamental current source equal to uncoupled)
 
 # test coupled NE for h = 5
+# TODO: create test.py
 V_uc_test5 = np.zeros(len(freq), dtype=complex)
 V_uc_test5[0] = V_f_m1
 V_uc_test5[2] = V_h_m1
