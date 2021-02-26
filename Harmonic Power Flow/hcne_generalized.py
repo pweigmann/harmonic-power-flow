@@ -1,15 +1,26 @@
-# rewriting the harmonic coupled norton equivalent method in a generalized and
-# modularized way
+""" Harmonic Power Flow using Norton-Raphson
+
+rewriting the harmonic coupled norton equivalent method in a generalized and
+modularized way
+
+n buses total (i = 1, ..., n)
+slack bus is first bus (i = 1)
+m-1 linear buses (i = 1, ..., m-1)
+n-m+1 nonlinear buses (i = m, ..., n)
+K harmonics considered (excluding fundamental)
+L is last harmonic considered
+"""
+
+# TODO: unify writing harmonics as frequency or multiple of fundamental freq.
+#  decide where to transform to pu system, calculation correct?
+#  test for multiple nonlinear buses as well as only one nonlinear bus
+#  variable naming convention
 
 import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import *
 from scipy.linalg import block_diag
 import matplotlib.pyplot as plt
-
-# TODO: unify writing harmonics as frequency or multiple of fundamental freq.
-#  decide where to transform to pu system, calculation correct?
-#  test for multiple nonlinear buses as well as only one nonlinear bus
 
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
@@ -22,12 +33,13 @@ COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
 
 # helper definitions
 idx = pd.IndexSlice
+
 # pu system
 base_current = 1000*BASE_POWER/BASE_VOLTAGE
 base_admittance = base_current/BASE_VOLTAGE
+
 # number of harmonics (without fundamental)
 K = len(HARMONICS) - 1
-
 
 
 # functions to change from algebraic to polar form
@@ -70,11 +82,13 @@ lines_fu = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                         columns=["ID", "fromID", "toID", "R", "X"])
 
 
-''' Functions for Fundamental Power Flow
-'''
-
-
+# Functions for Fundamental Power Flow
 def build_admittance_matrices(buses, lines, harmonics):
+    """ Create admittance matrices for all harmonics
+
+    based on infrastructure, that is lines and buses (nodes)
+    :returns: multi-index DataFrame, dim = complex(n_buses, n_buses*(K+1))
+    """
     # initialize empty harmonic admittance matrices
     iterables = [harmonics, buses.index.values]
     multi_idx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
@@ -137,6 +151,7 @@ def fund_mismatch(buses, V, Y):
 
 
 def build_jacobian(V, Y):
+    """ Jacobian containing partial derivatives of S wrt V """
     V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
     I_diag = np.diag(Y.dot(V_vec))
     V_diag = np.diag(V_vec)
@@ -156,6 +171,7 @@ def build_jacobian(V, Y):
 
 
 def update_fund_state_vec(J, x, f):
+    """ perform Newton-Raphson iteration """
     x_new = x - spsolve(J, f)  # use sparse matrices later
     return x_new
 
@@ -167,6 +183,15 @@ def update_fund_voltages(V, x):
 
 
 def pf(V, x, f, Y, buses, plt_convergence=False):
+    """ execute fundamental power flow
+
+    :param plt_convergence(default=False), shows convergence behaviour by
+           plotting err_t
+    :return: V: final voltages
+             err_t: error over time
+             n_iter_f: number of iterations performed
+    """
+
     n_iter_f = 0
     err = np.linalg.norm(f, np.Inf)
     err_t = {}
@@ -199,14 +224,6 @@ V_h, err1_t, n_converged = pf(V_h, x_1, f_1, Y_1, buses)
 if HARMONICS == [1]:
     pass
     # exit()
-
-''' Harmonic Power Flow
-n buses total (i = 1, ..., n)
-slack bus is first bus (i = 1)
-m-1 linear buses (i = 1, ..., m-1)
-n-m+1 nonlinear buses (i = m, ..., n)
-K harmonics considered (excluding fundamental)
-'''
 
 
 def import_Norton_Equivalents(coupled):
@@ -241,24 +258,25 @@ def import_Norton_Equivalents(coupled):
 
 
 def current_injections(busID, V):
-    # TODO: enhance for multiple nonlinear buses
+    # TODO: enhance for multiple nonlinear buses, plus automatic selection
     (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
     V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
     I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not ideal
     return I_inj
 
 
-def current_balance():
-    '''
+def current_balance(V, Y, buses):
+    """ evaluate current balance at all frequencies
+
     Fundamental current balance only for nonlinear buses (n-m+1)
     Harmonic current balance for all buses and all harmonics (n*K)
     :return: vector of n-m+1 + nK complex current balances
-    '''
+    """
 
     # fundamental admittance for nonlinear buses
     Y_f = Y_h.loc[1, m:]
     # fundamental voltage for all buses
-    V_f = V_h.loc[1, "V_m"]* np.exp(1j*V_h.loc[1, "V_a"])
+    V_f = V_h.loc[1, "V_m"] * np.exp(1j*V_h.loc[1, "V_a"])
     # current injections at nonlinear buses. FIXME: only works for one bus
     I_i = current_injections(3, V_h)
     # fundamental current balance
@@ -267,7 +285,7 @@ def current_balance():
     # construct V and Y from list of sub-arrays except fund
     # sparse matrix would be better
     Y = block_diag(*[Y_h.loc[i] for i in HARMONICS[1:]])
-    V = V_h.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V_h.loc[HARMONICS[1:], "V_a"])
+    V = V_h.loc[HARMONICS[1:], "V_m"] * np.exp(1j*V_h.loc[HARMONICS[1:], "V_a"])
     I_h = np.concatenate([np.array(
         [*np.zeros(n-1), i]) for i in I_i.loc[HARMONICS_FREQ[1:]]])
     dI_h = V.dot(Y) - I_h
@@ -277,25 +295,37 @@ def current_balance():
 
 
 def harmonic_mismatch(V, Y, buses):
-    # power mismatch
-    # add all linear buses to dS except slack (# = m-2)
-    V_vec = 0
-    dS = buses.P1[buses["type"] != "nonlinear"][1:]/BASE_POWER
-    + 1j*buses.Q1[buses["type"] != "nonlinear"][1:]/BASE_POWER
+    """ power and current mismatches for harmonic power flow
+
+    also referred to as harmonic mismatch vector f_h, that needs to be minimized
+    during NR algorithm
+    :return: complex vector of powers (m-2) and currents (n-m+1 + nK)
+    """
+
+    # fundamental power mismatch, first iteration same as in fundamental pf: f
+    # add all linear buses to S except slack (# = m-2)
+    S = buses.loc[1:(m-1), "P1"]/BASE_POWER + \
+        1j*buses.loc[1:(m-1), "Q1"]/BASE_POWER
+    # prepare V and Y as needed
+    V_i = V_h.loc[idx[1, 1:(m-1)], "V_m"] * \
+        np.exp(1j*V_h.loc[idx[1, 1:(m-1)], "V_a"])
+    V_j = V_h.loc[1, "V_m"] * np.exp(1j*V_h.loc[1, "V_a"])
+    Y_ij = Y_h.loc[idx[1, 1:(m-1), :]].to_numpy()
+    # get rid of indices for calculation
+    dW = S.to_numpy() + (V_i*np.conjugate(Y_ij.dot(V_j))).to_numpy()
+
     # current mismatch
-    # at fundamental frequency for nonlinear buses
-    dI_1 = Y*V_vec
-    # at harmonic frequencies for all buses
-    dI_h = 0
-    f_h = dS
+    dI = current_balance(V, Y, buses)
+
+    # combine both
+    f_h = np.concatenate([dW, dI])
     return f_h
 
-
-# harmonic power flow execution
-# for bus in buses_fu
-# current_injections()
+# def build_harmonic_jacobian()
+# def update_harmonic_state_vector()
+# def update_voltages()
+# def hpf()
 
 f_h = harmonic_mismatch(V_h, Y_h, buses)
 I_inj = current_injections(3, V_h)
-
 
