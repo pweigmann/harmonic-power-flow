@@ -3,6 +3,9 @@
 rewriting the harmonic coupled norton equivalent method in a generalized and
 modularized way
 
+fundamental pf largely based on PyPsa implementation (accessed 01.03.2021):
+https://github.com/PyPSA/PyPSA/blob/d05b22553403e69e8155fb06cf70618bf9737bf3/pypsa/pf.py#L420
+
 n buses total (i = 1, ..., n)
 slack bus is first bus (i = 1)
 m-1 linear buses (i = 1, ..., m-1)
@@ -151,7 +154,7 @@ def fund_mismatch(buses, V, Y):
 
 
 def build_jacobian(V, Y):
-    """ Jacobian containing partial derivatives of S wrt V """
+    """ fundamental Jacobian containing partial derivatives of S wrt V """
     V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
     I_diag = np.diag(Y.dot(V_vec))
     V_diag = np.diag(V_vec)
@@ -160,7 +163,7 @@ def build_jacobian(V, Y):
     dSdt = 1j*V_diag.dot(np.conj(I_diag - Y.dot(V_diag)))
 
     dSdV = V_diag_norm.dot(np.conj(I_diag)) \
-           + V_diag.dot(np.conj(Y.dot(V_diag_norm)))
+        + V_diag.dot(np.conj(Y.dot(V_diag_norm)))
 
     dPdt = dSdt[1:, 1:].real
     dPdV = dSdV[1:, 1:].real
@@ -321,8 +324,22 @@ def harmonic_mismatch(V, Y, buses):
     f_h = np.concatenate([dW, dI])
     return f_h
 
+
+
+
+def harmonic_state_vector():
+    x_h = 0
+    return x_h
+
+
 # def build_harmonic_jacobian()
-# def update_harmonic_state_vector()
+
+
+
+
+
+
+
 # def update_voltages()
 # def hpf()
 

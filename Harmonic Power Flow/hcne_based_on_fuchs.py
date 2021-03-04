@@ -373,3 +373,4 @@ pd.concat(I_inj_log, names=["iteration", "harmonic"]).to_json(
 
 # Results without alpha and beta are the same to original example.
 # Convergence seems to be even better (not faster, but further).
+# Problem might be the constant fundamental Jacobian
