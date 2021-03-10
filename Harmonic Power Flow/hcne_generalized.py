@@ -210,7 +210,8 @@ def pf(V, x, f, Y, buses, plt_convergence=False):
         plt.plot(list(err_t.keys()), list(err_t.values()))
     print(V.loc[1])
     if n_iter_f < MAX_ITER_F:
-        print("Converged after " + str(n_iter_f) + " iterations.")
+        print("Fundamental power flow converged after " + str(n_iter_f) +
+              " iterations.")
     elif n_iter_f == MAX_ITER_F:
         print("Maximum of " + str(n_iter_f) + " iterations reached.")
     return V, err_t, n_iter_f
@@ -302,7 +303,8 @@ def harmonic_mismatch(V, Y, buses):
 
     also referred to as harmonic mismatch vector f_h, that needs to be minimized
     during NR algorithm
-    :return: complex vector of powers (m-2) and currents (n-m+1 + nK)
+    :return: complex vector of powers (m-2) and currents (n-m+1 + nK),
+             total length: m-2 + n-m+1+nK = n(K+1)-1
     """
 
     # fundamental power mismatch, first iteration same as in fundamental pf: f
@@ -315,28 +317,35 @@ def harmonic_mismatch(V, Y, buses):
     V_j = V_h.loc[1, "V_m"] * np.exp(1j*V_h.loc[1, "V_a"])
     Y_ij = Y_h.loc[idx[1, 1:(m-1), :]].to_numpy()
     # get rid of indices for calculation
-    dW = S.to_numpy() + (V_i*np.conjugate(Y_ij.dot(V_j))).to_numpy()
+    dS = S.to_numpy() + (V_i*np.conjugate(Y_ij.dot(V_j))).to_numpy()
 
     # current mismatch
     dI = current_balance(V, Y, buses)
 
     # combine both
-    f_h = np.concatenate([dW, dI])
+    f_h = np.concatenate([dS, dI])
     return f_h
 
 
-
-
-def harmonic_state_vector():
-    x_h = 0
-    return x_h
+def harmonic_state_vector(V):
+    """ returns voltages vector, real then imag part, without slack at h=1 """
+    V_vec = V.V_m*np.exp(1j*V.V_a)
+    x = np.array([*np.real(V_vec[1:].to_numpy()),
+                  *np.imag(V_vec[1:].to_numpy())])
+    return x
 
 
 # def build_harmonic_jacobian()
 
+SV = 0
+ST = 0
+IV = 0
+IT = 0
 
-
-
+j = np.block([[SV.real, ST.real],
+              [IV.real, IT.real],
+              [SV.imag, ST.imag],
+              [IV.imag, IT.imag]])
 
 
 
@@ -344,5 +353,6 @@ def harmonic_state_vector():
 # def hpf()
 
 f_h = harmonic_mismatch(V_h, Y_h, buses)
+x_h = harmonic_state_vector(V_h)
 I_inj = current_injections(3, V_h)
 
