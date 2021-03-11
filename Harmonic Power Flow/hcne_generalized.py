@@ -233,6 +233,7 @@ if HARMONICS == [1]:
 def import_Norton_Equivalents(coupled):
     # TODO: generalize for multiple nonlinear devices
     #  import NEs from other sources or input manually
+    #  add index for bus
     #  chose alternative format (e.g. HDF5 or pickle instead of csv)
 
     # import Norton Equivalents (one type of device for now)
@@ -281,7 +282,7 @@ def current_balance(V, Y, buses):
     Y_f = Y_h.loc[1, m:]
     # fundamental voltage for all buses
     V_f = V_h.loc[1, "V_m"] * np.exp(1j*V_h.loc[1, "V_a"])
-    # current injections at nonlinear buses. FIXME: only works for one bus
+    # current injections at nonlinear buses. FIXME: only works for one nl bus
     I_i = current_injections(3, V_h)
     # fundamental current balance
     dI_f = np.squeeze(Y_f).dot(V_f) - I_i[50]
@@ -303,8 +304,9 @@ def harmonic_mismatch(V, Y, buses):
 
     also referred to as harmonic mismatch vector f_h, that needs to be minimized
     during NR algorithm
-    :return: complex vector of powers (m-2) and currents (n-m+1 + nK),
-             total length: m-2 + n-m+1+nK = n(K+1)-1
+    :return: numpy vector of powers (m-2) and currents (n-m+1 + nK),
+             first real part, then imaginary part
+             total length: 2(m-2 + n-m+1+nK) = 2(n(K+1)-1)
     """
 
     # fundamental power mismatch, first iteration same as in fundamental pf: f
@@ -323,8 +325,8 @@ def harmonic_mismatch(V, Y, buses):
     dI = current_balance(V, Y, buses)
 
     # combine both
-    f_h = np.concatenate([dS, dI])
-    return f_h
+    f = np.concatenate([dS, dI])
+    return np.array([*f.real, *f.imag])
 
 
 def harmonic_state_vector(V):
@@ -336,11 +338,50 @@ def harmonic_state_vector(V):
 
 
 # def build_harmonic_jacobian()
+V_vec = V_h.V_m*np.exp(1j*V_h.V_a)
+V_diag = np.diag(V_vec)
+V_norm = V_vec/V_h.V_m
+V_norm_diag = np.diag(V_norm)
 
-SV = 0
-ST = 0
-IV = 0
-IT = 0
+Y = block_diag(*[Y_h.loc[i] for i in HARMONICS])  # [m-1:, 1:] easier in the end
+
+# IV and IT
+IV = Y.dot(V_norm_diag)  # diagonal blocks for p = h
+IT = 1j*Y.dot(V_diag)
+
+# iterate through YV and subtract derived current injections
+# FIXME: only works for one nl bus
+blocks = range(K+1)
+nl_idx_start = list(range(m, n*(K+1), n))
+nl_V = V_vec[nl_idx_start]
+nl_V_norm = nl_V/abs(nl_V)
+(I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
+
+for a in blocks:
+    for b in blocks:
+        # FIXME: only works for one nl bus
+        IV[a*n+m, b*n+m] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
+        IT[a*n+m, b*n+m] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
+# crop
+IV = IV[m:, 1:]
+IT = IT[m:, 1:]
+
+
+# SV and ST (from fundamental)
+# TODO: Harmonize sorting with fundamental
+
+V_vec_1 = V_h.loc[1, "V_m"]*np.exp(1j*V_h.loc[1, "V_a"])
+I_diag = np.diag(Y_h.loc[1].to_numpy().dot(V_vec_1))
+V_diag = np.diag(V_vec_1)
+V_diag_norm = np.diag(V_vec_1/abs(V_vec_1))
+
+S1V1 = V_diag_norm.dot(np.conj(I_diag)) \
+    + V_diag.dot(np.conj(Y_h.loc[1].to_numpy().dot(V_diag_norm)))
+S1T1 = 1j*V_diag.dot(np.conj(I_diag - Y_h.loc[1].to_numpy().dot(V_diag)))
+
+SV = np.block([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
+ST = np.block([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
+
 
 j = np.block([[SV.real, ST.real],
               [IV.real, IT.real],
@@ -348,11 +389,8 @@ j = np.block([[SV.real, ST.real],
               [IV.imag, IT.imag]])
 
 
+f_h = harmonic_mismatch(V_h, Y_h, buses)
+x_h = harmonic_state_vector(V_h)
 
 # def update_voltages()
 # def hpf()
-
-f_h = harmonic_mismatch(V_h, Y_h, buses)
-x_h = harmonic_state_vector(V_h)
-I_inj = current_injections(3, V_h)
-
