@@ -31,7 +31,9 @@ BASE_VOLTAGE = 230
 HARMONICS = [1, 5, 7]
 HARMONICS_FREQ = [50 * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
+MAX_ITER_H = 30
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
+THRESH_H = 1e-4
 COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
 
 # helper definitions
@@ -314,10 +316,10 @@ def harmonic_mismatch(V, Y, buses):
     S = buses.loc[1:(m-1), "P1"]/BASE_POWER + \
         1j*buses.loc[1:(m-1), "Q1"]/BASE_POWER
     # prepare V and Y as needed
-    V_i = V_h.loc[idx[1, 1:(m-1)], "V_m"] * \
-        np.exp(1j*V_h.loc[idx[1, 1:(m-1)], "V_a"])
-    V_j = V_h.loc[1, "V_m"] * np.exp(1j*V_h.loc[1, "V_a"])
-    Y_ij = Y_h.loc[idx[1, 1:(m-1), :]].to_numpy()
+    V_i = V.loc[idx[1, 1:(m-1)], "V_m"] * \
+        np.exp(1j*V.loc[idx[1, 1:(m-1)], "V_a"])
+    V_j = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
+    Y_ij = Y.loc[idx[1, 1:(m-1), :]].to_numpy()
     # get rid of indices for calculation
     dS = S.to_numpy() + (V_i*np.conjugate(Y_ij.dot(V_j))).to_numpy()
 
@@ -326,71 +328,114 @@ def harmonic_mismatch(V, Y, buses):
 
     # combine both
     f = np.concatenate([dS, dI])
-    return np.array([*f.real, *f.imag])
+
+    # error
+    err_h = np.linalg.norm(f, np.Inf)
+    return np.array([*f.real, *f.imag]), err_h
 
 
 def harmonic_state_vector(V):
-    """ returns voltages vector, real then imag part, without slack at h=1 """
-    V_vec = V.V_m*np.exp(1j*V.V_a)
-    x = np.array([*np.real(V_vec[1:].to_numpy()),
-                  *np.imag(V_vec[1:].to_numpy())])
+    """ returns voltages vector, magnitude then phase, without slack at h=1 """
+    x = np.append(V.V_m[1:], V.V_a[1:])
     return x
 
 
-# def build_harmonic_jacobian()
-V_vec = V_h.V_m*np.exp(1j*V_h.V_a)
-V_diag = np.diag(V_vec)
-V_norm = V_vec/V_h.V_m
-V_norm_diag = np.diag(V_norm)
+def build_harmonic_jacobian(V, Y):
+    V_vec = V.V_m*np.exp(1j*V.V_a)
+    V_diag = np.diag(V_vec)
+    V_norm = V_vec/V.V_m
+    V_norm_diag = np.diag(V_norm)
 
-Y = block_diag(*[Y_h.loc[i] for i in HARMONICS])  # [m-1:, 1:] easier in the end
+    Y_diag = block_diag(*[Y.loc[i] for i in HARMONICS])  # [m-1:, 1:] easier in the end
 
-# IV and IT
-IV = Y.dot(V_norm_diag)  # diagonal blocks for p = h
-IT = 1j*Y.dot(V_diag)
+    # IV and IT
+    IV = Y_diag.dot(V_norm_diag)  # diagonal blocks for p = h
+    IT = 1j*Y_diag.dot(V_diag)
 
-# iterate through YV and subtract derived current injections
-# FIXME: only works for one nl bus
-blocks = range(K+1)
-nl_idx_start = list(range(m, n*(K+1), n))
-nl_V = V_vec[nl_idx_start]
-nl_V_norm = nl_V/abs(nl_V)
-(I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
+    # iterate through YV and subtract derived current injections
+    # FIXME: only works for one nl bus
+    blocks = range(K+1)
+    nl_idx_start = list(range(m, n*(K+1), n))
+    nl_V = V_vec[nl_idx_start]
+    nl_V_norm = nl_V/abs(nl_V)
+    (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
 
-for a in blocks:
-    for b in blocks:
-        # FIXME: only works for one nl bus
-        IV[a*n+m, b*n+m] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
-        IT[a*n+m, b*n+m] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
-# crop
-IV = IV[m:, 1:]
-IT = IT[m:, 1:]
+    for a in blocks:
+        for b in blocks:
+            # FIXME: only works for one nl bus
+            IV[a*n+m, b*n+m] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
+            IT[a*n+m, b*n+m] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
+    # crop
+    IV = IV[m:, 1:]
+    IT = IT[m:, 1:]
 
+    # SV and ST (from fundamental)
+    # TODO: Harmonize sorting with fundamental
+    V_vec_1 = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    I_diag = np.diag(Y.loc[1].to_numpy().dot(V_vec_1))
+    V_diag = np.diag(V_vec_1)
+    V_diag_norm = np.diag(V_vec_1/abs(V_vec_1))
 
-# SV and ST (from fundamental)
-# TODO: Harmonize sorting with fundamental
+    S1V1 = V_diag_norm.dot(np.conj(I_diag)) \
+        + V_diag.dot(np.conj(Y.loc[1].to_numpy().dot(V_diag_norm)))
+    S1T1 = 1j*V_diag.dot(np.conj(I_diag - Y.loc[1].to_numpy().dot(V_diag)))
 
-V_vec_1 = V_h.loc[1, "V_m"]*np.exp(1j*V_h.loc[1, "V_a"])
-I_diag = np.diag(Y_h.loc[1].to_numpy().dot(V_vec_1))
-V_diag = np.diag(V_vec_1)
-V_diag_norm = np.diag(V_vec_1/abs(V_vec_1))
+    SV = np.block([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
+    ST = np.block([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
 
-S1V1 = V_diag_norm.dot(np.conj(I_diag)) \
-    + V_diag.dot(np.conj(Y_h.loc[1].to_numpy().dot(V_diag_norm)))
-S1T1 = 1j*V_diag.dot(np.conj(I_diag - Y_h.loc[1].to_numpy().dot(V_diag)))
-
-SV = np.block([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
-ST = np.block([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
-
-
-j = np.block([[SV.real, ST.real],
-              [IV.real, IT.real],
-              [SV.imag, ST.imag],
-              [IV.imag, IT.imag]])
+    J = np.block([[SV.real, ST.real],
+                  [IV.real, IT.real],
+                  [SV.imag, ST.imag],
+                  [IV.imag, IT.imag]])
+    return J
 
 
-f_h = harmonic_mismatch(V_h, Y_h, buses)
+def update_harmonic_state_vec(J, x, f):
+    """ perform Newton-Raphson iteration """
+    x_new = x - spsolve(J, f)  # use sparse matrices later
+    return x_new
+
+
+def update_harmonic_voltages(V, x):
+    V.iloc[idx[1:], 0] = x[:int(len(x)/2)]
+    V.iloc[idx[1:], 1] = x[int(len(x)/2):]
+    return V
+
+
+def hpf(V, x, f, Y, buses, plt_convergence=False):
+    """ execute fundamental power flow
+
+    :param plt_convergence(default=False), shows convergence behaviour by
+           plotting err_t
+    :return: V: final voltages
+             err_t: error over time
+             n_iter_f: number of iterations performed
+    """
+    # TODO: initialize here
+    n_iter_h = 0
+    err_h = np.linalg.norm(f, np.Inf)
+    err_h_t = {}
+    while err_h > THRESH_H and n_iter_h < MAX_ITER_H:
+        J = build_harmonic_jacobian(V, Y)
+        x = update_harmonic_state_vec(J, x, f)
+        V = update_harmonic_voltages(V, x)
+        (f, err_h) = harmonic_mismatch(V, Y, buses)
+        err_h_t[n_iter_h] = err_h
+        n_iter_h += 1
+
+    # plot convergence behaviour
+    if plt_convergence:
+        plt.plot(list(err_h_t.keys()), list(err_h_t.values()))
+    print(V)
+    if n_iter_h < MAX_ITER_H:
+        print("Harmonic power flow converged after " + str(n_iter_h) +
+              " iterations.")
+    elif n_iter_h == MAX_ITER_H:
+        print("Maximum of " + str(n_iter_h) + " iterations reached.")
+    return V, err_h, n_iter_h
+
+
+f_h, err_h = harmonic_mismatch(V_h, Y_h, buses)
 x_h = harmonic_state_vector(V_h)
-
-# def update_voltages()
-# def hpf()
+J_h = build_harmonic_jacobian(V_h, Y_h)
+(V_h, err_h_final, n_iter_h) = hpf(V_h, x_h, f_h, Y_h, buses, plt_convergence=True)
