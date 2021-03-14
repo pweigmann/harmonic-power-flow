@@ -29,7 +29,8 @@ import matplotlib.pyplot as plt
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
 HARMONICS = [1, 5, 7]
-HARMONICS_FREQ = [50 * i for i in HARMONICS]
+NET_FREQ = 50
+HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
 MAX_ITER_H = 30
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
@@ -187,7 +188,7 @@ def update_fund_voltages(V, x):
     return V
 
 
-def pf(V, x, f, Y, buses, plt_convergence=False):
+def pf(V, Y, buses, plt_convergence=False):
     """ execute fundamental power flow
 
     :param plt_convergence(default=False), shows convergence behaviour by
@@ -198,7 +199,9 @@ def pf(V, x, f, Y, buses, plt_convergence=False):
     """
 
     n_iter_f = 0
-    err = np.linalg.norm(f, np.Inf)
+    Y = np.array(Y.loc[1])
+    x = init_fund_state_vec(V)
+    f, err = fund_mismatch(buses, V, Y)
     err_t = {}
     while err > THRESH_F and n_iter_f < MAX_ITER_F:
         J = build_jacobian(V, Y)
@@ -221,11 +224,8 @@ def pf(V, x, f, Y, buses, plt_convergence=False):
 
 # fundamental power flow execution
 Y_h = build_admittance_matrices(buses, lines_fu, HARMONICS)
-Y_1 = np.array(Y_h.loc[1])
 V_h = init_voltages(buses, HARMONICS)
-x_1 = init_fund_state_vec(V_h)
-f_1, err1 = fund_mismatch(buses, V_h, Y_1)
-V_h, err1_t, n_converged = pf(V_h, x_1, f_1, Y_1, buses)
+V_h, err1_t, n_converged = pf(V_h, Y_h, buses)
 
 if HARMONICS == [1]:
     pass
@@ -236,7 +236,7 @@ def import_Norton_Equivalents(coupled):
     # TODO: generalize for multiple nonlinear devices
     #  import NEs from other sources or input manually
     #  add index for bus
-    #  chose alternative format (e.g. HDF5 or pickle instead of csv)
+    #  chose alternative format (e.g. HDF5 instead of csv)
 
     # import Norton Equivalents (one type of device for now)
     # hardcoded. idea: always just this one file
@@ -266,7 +266,8 @@ def import_Norton_Equivalents(coupled):
 
 def current_injections(busID, V):
     # TODO: enhance for multiple nonlinear buses, plus automatic selection
-    (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
+    #  restructure, so that import from file is only performed once
+    (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)  # only import once
     V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
     I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not ideal
     return I_inj
@@ -281,18 +282,18 @@ def current_balance(V, Y, buses):
     """
 
     # fundamental admittance for nonlinear buses
-    Y_f = Y_h.loc[1, m:]
+    Y_f = Y.loc[1, m:]
     # fundamental voltage for all buses
-    V_f = V_h.loc[1, "V_m"] * np.exp(1j*V_h.loc[1, "V_a"])
+    V_f = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
     # current injections at nonlinear buses. FIXME: only works for one nl bus
-    I_i = current_injections(3, V_h)
+    I_i = current_injections(3, V)
     # fundamental current balance
     dI_f = np.squeeze(Y_f).dot(V_f) - I_i[50]
 
     # construct V and Y from list of sub-arrays except fund
     # sparse matrix would be better
-    Y = block_diag(*[Y_h.loc[i] for i in HARMONICS[1:]])
-    V = V_h.loc[HARMONICS[1:], "V_m"] * np.exp(1j*V_h.loc[HARMONICS[1:], "V_a"])
+    Y = block_diag(*[Y.loc[i] for i in HARMONICS[1:]])
+    V = V.loc[HARMONICS[1:], "V_m"] * np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
     I_h = np.concatenate([np.array(
         [*np.zeros(n-1), i]) for i in I_i.loc[HARMONICS_FREQ[1:]]])
     dI_h = V.dot(Y) - I_h
@@ -397,12 +398,13 @@ def update_harmonic_state_vec(J, x, f):
 
 
 def update_harmonic_voltages(V, x):
+    # TODO: clean voltages - non-negative and phase < 2pi
     V.iloc[idx[1:], 0] = x[:int(len(x)/2)]
     V.iloc[idx[1:], 1] = x[int(len(x)/2):]
     return V
 
 
-def hpf(V, x, f, Y, buses, plt_convergence=False):
+def hpf(V, Y, buses, plt_convergence=False):
     """ execute fundamental power flow
 
     :param plt_convergence(default=False), shows convergence behaviour by
@@ -413,7 +415,8 @@ def hpf(V, x, f, Y, buses, plt_convergence=False):
     """
     # TODO: initialize here
     n_iter_h = 0
-    err_h = np.linalg.norm(f, np.Inf)
+    f, err_h = harmonic_mismatch(V, Y, buses)
+    x = harmonic_state_vector(V)
     err_h_t = {}
     while err_h > THRESH_H and n_iter_h < MAX_ITER_H:
         J = build_harmonic_jacobian(V, Y)
@@ -435,7 +438,4 @@ def hpf(V, x, f, Y, buses, plt_convergence=False):
     return V, err_h, n_iter_h
 
 
-f_h, err_h = harmonic_mismatch(V_h, Y_h, buses)
-x_h = harmonic_state_vector(V_h)
-J_h = build_harmonic_jacobian(V_h, Y_h)
-(V_h, err_h_final, n_iter_h) = hpf(V_h, x_h, f_h, Y_h, buses, plt_convergence=True)
+(V_h, err_h_final, n_iter_h) = hpf(V_h, Y_h, buses)
