@@ -9,6 +9,7 @@ from scipy.io import loadmat
 #  create and use V_supply in same shape and with same index as I_inj
 #  join all data initially by using loop, so it can be accessed vectorized
 #  restructure as functions
+#  pass name of simulated device (other meta data as well?)
 
 # import from .mat file
 data = loadmat('circuit_sim.mat', squeeze_me=True, struct_as_record=False)
