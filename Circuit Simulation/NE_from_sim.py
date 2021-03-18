@@ -8,11 +8,12 @@ from scipy.io import loadmat
 # TODO:  change angles consistently to degree or rad or go full cartesian
 #  create and use V_supply in same shape and with same index as I_inj
 #  join all data initially by using loop, so it can be accessed vectorized
-#  restructure as functions
+#  restructure as functions, call for all files in folder
 #  pass name of simulated device (other meta data as well?)
 
 # import from .mat file
-data = loadmat('circuit_sim.mat', squeeze_me=True, struct_as_record=False)
+device_name = "smps"
+data = loadmat(device_name + '.mat', squeeze_me=True, struct_as_record=False)
 df = data["all"].results_f  # fundamental simulation results
 dh = data["all"].results_h  # harmonic simulation results
 
@@ -174,7 +175,6 @@ if np.linalg.norm(err_c, np.inf) > 1e-6:
     print("Warning: coupled NE test failed!")
 
 # export to file
-# TODO:
 multi_idx_exp = pd.MultiIndex.from_arrays([
     len(freq)*["Y_N_c"] + ["I_N_c", "Y_N_uc", "I_N_uc"],
     freq + [0, 0, 0]], names=["Parameter", "Frequency"])
@@ -185,4 +185,5 @@ NE.loc["I_N_c", 0] = I_N_c.values
 NE.loc["Y_N_uc", 0] = Y_N_uc.values
 NE.loc["I_N_uc", 0] = I_N_uc.values
 
-NE.to_csv("NE.csv")
+NE.to_csv(device_name + "_NE.csv")
+print("Created file " + device_name + "_NE.csv")

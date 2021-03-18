@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-HARMONICS = [1, 5, 7]
+HARMONICS = [1, 5, 7, 9, 11, 13, 17, 23]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
@@ -61,8 +61,9 @@ def A2P(x):
 # df for constant properties of buses
 buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
                                   [2, "PQ", "lin_load_1", None, 0],
-                                  [3, "PQ", None, None, 0],
-                                  [4, "nonlinear", "nlin_load_1", None, 0]]),
+                                  [3, "PQ", "lin_load_2", None, 0],
+                                  [4, "PQ", None, None, 0],
+                                  [5, "nonlinear", "smps", None, 0]]),
                            columns=["ID", "type", "component", "S", "X_shunt"])
 # generate columns for all frequencies
 columns = []
@@ -73,8 +74,8 @@ for h in HARMONICS:
 buses_power = pd.DataFrame(np.zeros((len(buses_const), 2*len(HARMONICS))),
                            columns=columns)
 # insert fundamental powers, part of future import
-buses_power["P1"] = [0, 100, 0, 250]
-buses_power["Q1"] = [0, 100, 0, 100]
+buses_power["P1"] = [0, 100, 100, 0, 250]
+buses_power["Q1"] = [0, 100, 100, 0, 100]
 # combined df for buses
 buses = pd.concat([buses_const, buses_power], axis=1)
 # find first nonlinear bus FIXME: start counting from 0 or 1? atm mixed
@@ -84,7 +85,8 @@ n = len(buses)
 lines_fu = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                   [2, 2, 3, 0.02, 0.08],
                                   [3, 3, 4, 0.01, 0.02],
-                                  [4, 4, 1, 0.01, 0.02]]),
+                                  [4, 4, 5, 0.01, 0.02],
+                                  [5, 5, 1, 0.01, 0.02]]),
                         columns=["ID", "fromID", "toID", "R", "X"])
 
 
@@ -188,7 +190,7 @@ def update_fund_voltages(V, x):
     return V
 
 
-def pf(V, Y, buses, plt_convergence=False):
+def pf(Y, buses, plt_convergence=False):
     """ execute fundamental power flow
 
     :param plt_convergence(default=False), shows convergence behaviour by
@@ -197,7 +199,7 @@ def pf(V, Y, buses, plt_convergence=False):
              err_t: error over time
              n_iter_f: number of iterations performed
     """
-
+    V = init_voltages(buses, HARMONICS)
     n_iter_f = 0
     Y = np.array(Y.loc[1])
     x = init_fund_state_vec(V)
@@ -224,39 +226,40 @@ def pf(V, Y, buses, plt_convergence=False):
 
 # fundamental power flow execution
 Y_h = build_admittance_matrices(buses, lines_fu, HARMONICS)
-V_h = init_voltages(buses, HARMONICS)
-V_h, err1_t, n_converged = pf(V_h, Y_h, buses)
+V_h, err1_t, n_converged = pf(Y_h, buses)
 
 if HARMONICS == [1]:
     pass
     # exit()
 
 
-def import_Norton_Equivalents(coupled):
+def import_Norton_Equivalents(device, coupled):
     # TODO: generalize for multiple nonlinear devices
     #  import NEs from other sources or input manually
     #  add index for bus
-    #  chose alternative format (e.g. HDF5 instead of csv)
+    #  choose alternative format (e.g. HDF5 instead of csv)
 
     # import Norton Equivalents (one type of device for now)
     # hardcoded. idea: always just this one file
-    file_path = "~/Git/harmonic-power-flow/Circuit Simulation/NE.csv"
-    NE_SMPS = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
+    file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
+                    + device + "_NE.csv")
+    NE_device = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
     # change column type from str to int
-    NE_SMPS.columns = NE_SMPS.columns.astype(int)
+    NE_device.columns = NE_device.columns.astype(int)
     # filter all columns for harmonics considered
-    NE_SMPS = NE_SMPS[HARMONICS_FREQ]
+    # TODO: check if all NE for all considered harmonics are available
+    NE_device = NE_device[HARMONICS_FREQ]
     # values are imported as strings, transform to complex
-    NE_SMPS = NE_SMPS.apply(lambda col: col.apply(
+    NE_device = NE_device.apply(lambda col: col.apply(
         lambda val: complex(val.strip('()'))))
 
     # change to pu system
-    I_N_c = NE_SMPS.loc["I_N_c"]/base_current
+    I_N_c = NE_device.loc["I_N_c"]/base_current
     # also filter Y_N_c rows by harmonics considered
-    Y_N_c = NE_SMPS.loc[("Y_N_c", HARMONICS_FREQ), HARMONICS_FREQ] / \
+    Y_N_c = NE_device.loc[("Y_N_c", HARMONICS_FREQ), HARMONICS_FREQ] / \
         base_admittance
-    I_N_uc = NE_SMPS.loc["I_N_uc"]/base_current
-    Y_N_uc = NE_SMPS.loc["Y_N_uc"]/base_admittance
+    I_N_uc = NE_device.loc["I_N_uc"]/base_current
+    Y_N_uc = NE_device.loc["Y_N_uc"]/base_admittance
 
     if coupled:
         return I_N_c, Y_N_c
@@ -267,8 +270,9 @@ def import_Norton_Equivalents(coupled):
 def current_injections(busID, V):
     # TODO: enhance for multiple nonlinear buses, plus automatic selection
     #  restructure, so that import from file is only performed once
-    (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)  # only import once
-    V_h = V.loc[idx[:, busID], "V_m"] * np.exp(1j*V.loc[idx[:, busID], "V_a"])
+    device = buses.loc[busID, "component"]
+    (I_N, Y_N) = import_Norton_Equivalents(device, COUPLED_NE)
+    V_h = V.loc[idx[:, busID], "V_m"]*np.exp(1j*V.loc[idx[:, busID], "V_a"])
     I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not ideal
     return I_inj
 
@@ -284,9 +288,11 @@ def current_balance(V, Y, buses):
     # fundamental admittance for nonlinear buses
     Y_f = Y.loc[1, m:]
     # fundamental voltage for all buses
-    V_f = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
     # current injections at nonlinear buses. FIXME: only works for one nl bus
-    I_i = current_injections(3, V)
+    # get idx of all nonlinear buses
+    nl_buses = buses[buses.type == "nonlinear"]
+    I_i = current_injections(nl_buses.index[0], V)  # still only one bus
     # fundamental current balance
     dI_f = np.squeeze(Y_f).dot(V_f) - I_i[50]
 
@@ -359,7 +365,8 @@ def build_harmonic_jacobian(V, Y):
     nl_idx_start = list(range(m, n*(K+1), n))
     nl_V = V_vec[nl_idx_start]
     nl_V_norm = nl_V/abs(nl_V)
-    (I_N, Y_N) = import_Norton_Equivalents(COUPLED_NE)
+    device = buses.component[buses[buses.type == "nonlinear"].index[0]]
+    (I_N, Y_N) = import_Norton_Equivalents(device, COUPLED_NE)
 
     for a in blocks:
         for b in blocks:
@@ -398,9 +405,13 @@ def update_harmonic_state_vec(J, x, f):
 
 
 def update_harmonic_voltages(V, x):
-    # TODO: clean voltages - non-negative and phase < 2pi
+    """update and clean all voltages after iteration"""
     V.iloc[idx[1:], 0] = x[:int(len(x)/2)]
     V.iloc[idx[1:], 1] = x[int(len(x)/2):]
+    # somehow this doesn't work, why?
+    #V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi  # add pi to negative voltage magnitudes
+    #V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
+    V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
 
 
@@ -413,7 +424,7 @@ def hpf(V, Y, buses, plt_convergence=False):
              err_t: error over time
              n_iter_f: number of iterations performed
     """
-    # TODO: initialize here
+    # TODO: call fundamental pf inside hpf
     n_iter_h = 0
     f, err_h = harmonic_mismatch(V, Y, buses)
     x = harmonic_state_vector(V)

@@ -13,7 +13,7 @@ clear all
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 550;   % highest harmonic simulated, min = 150
+h_max = 5000;   % highest harmonic simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
@@ -23,7 +23,7 @@ Initialph_f_range = [0, 10];  % fundamental voltage phase, [degree]
 
 % harmonic voltage source (variable operating conditions)
 supply_harmonics = 50*(3:2:h_max/f);  % harmonic frequency range
-supply_voltage_h = [2.3, 11.5,23];  % harmonic voltage magnitude range
+supply_voltage_h = [2.3, 23];  % harmonic voltage magnitude range
 Initialph_h = 20;  % harmonic voltage phase, [degree]
 
 % variable evaluation parameters
@@ -214,4 +214,4 @@ end
 
 % export results
 all = struct("results_f", results_f, "results_h", results_h);
-save('circuit_sim.mat', 'all');
+save('smps.mat', 'all');
