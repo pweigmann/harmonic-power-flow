@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-HARMONICS = [1, 5, 7, 9, 11, 13, 17, 23]
+HARMONICS = [1, 5, 7]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
@@ -65,7 +65,7 @@ buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
                                   [4, "PQ", None, None, 0],
                                   [5, "nonlinear", "smps", None, 0]]),
                            columns=["ID", "type", "component", "S", "X_shunt"])
-# generate columns for all frequencies
+# generate columns for all frequencies (probably not needed without Fuchs)
 columns = []
 for h in HARMONICS:
     columns.append("P" + str(h))
