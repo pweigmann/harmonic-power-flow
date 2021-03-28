@@ -15,7 +15,6 @@ L is last harmonic considered
 """
 
 # TODO: unify writing harmonics as frequency or multiple of fundamental freq.
-#  decide where to transform to pu system, calculation correct?
 #  test for multiple nonlinear buses as well as only one nonlinear bus
 #  variable naming convention
 
@@ -43,10 +42,6 @@ idx = pd.IndexSlice
 # pu system
 base_current = 1000*BASE_POWER/BASE_VOLTAGE
 base_admittance = base_current/BASE_VOLTAGE
-
-# number of harmonics (without fundamental)
-K = len(HARMONICS) - 1
-
 
 # functions to change from algebraic to polar form
 def P2A(radii, angles):
@@ -82,7 +77,7 @@ buses = pd.concat([buses_const, buses_power], axis=1)
 m = min(buses.index[buses["type"] == "nonlinear"])
 n = len(buses)
 
-lines_fu = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
+lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
                                   [2, 2, 3, 0.02, 0.08],
                                   [3, 3, 4, 0.01, 0.02],
                                   [4, 4, 5, 0.01, 0.02],
@@ -130,7 +125,6 @@ def build_admittance_matrices(buses, lines, harmonics):
 def init_voltages(buses, harmonics):
     iterables = [harmonics, buses.index.values]
     multi_idx = pd.MultiIndex.from_product(iterables, names=['harmonic', 'bus'])
-    # TODO: import voltages from file
     V = pd.DataFrame(np.zeros((len(harmonics) * len(buses), 2)),
                      index=multi_idx, columns=["V_m", "V_a"])
     V.sort_index(inplace=True)
@@ -225,7 +219,7 @@ def pf(Y, buses, plt_convergence=False):
 
 
 # fundamental power flow execution
-Y_h = build_admittance_matrices(buses, lines_fu, HARMONICS)
+Y_h = build_admittance_matrices(buses, lines, HARMONICS)
 V_h, err1_t, n_converged = pf(Y_h, buses)
 
 if HARMONICS == [1]:
@@ -253,17 +247,16 @@ def import_Norton_Equivalents(device, coupled):
     NE_device = NE_device.apply(lambda col: col.apply(
         lambda val: complex(val.strip('()'))))
 
-    # change to pu system
-    I_N_c = NE_device.loc["I_N_c"]/base_current
-    # also filter Y_N_c rows by harmonics considered
-    Y_N_c = NE_device.loc[("Y_N_c", HARMONICS_FREQ), HARMONICS_FREQ] / \
-        base_admittance
-    I_N_uc = NE_device.loc["I_N_uc"]/base_current
-    Y_N_uc = NE_device.loc["Y_N_uc"]/base_admittance
-
     if coupled:
+        # change to pu system
+        I_N_c = NE_device.loc["I_N_c"]/base_current
+        # also filter Y_N_c rows by harmonics considered
+        Y_N_c = NE_device.loc[("Y_N_c", HARMONICS_FREQ), HARMONICS_FREQ] / \
+        base_admittance
         return I_N_c, Y_N_c
     else:
+        I_N_uc = NE_device.loc["I_N_uc"]/base_current
+        Y_N_uc = NE_device.loc["Y_N_uc"]/base_admittance
         return I_N_uc, Y_N_uc
 
 
@@ -278,7 +271,8 @@ def current_injections(busID, V):
 
 
 def current_balance(V, Y, buses):
-    """ evaluate current balance at all frequencies
+    """ evaluate current balance at all
+
 
     Fundamental current balance only for nonlinear buses (n-m+1)
     Harmonic current balance for all buses and all harmonics (n*K)
@@ -348,6 +342,7 @@ def harmonic_state_vector(V):
 
 
 def build_harmonic_jacobian(V, Y):
+    # preparing objects to simplify calculation
     V_vec = V.V_m*np.exp(1j*V.V_a)
     V_diag = np.diag(V_vec)
     V_norm = V_vec/V.V_m
@@ -361,6 +356,8 @@ def build_harmonic_jacobian(V, Y):
 
     # iterate through YV and subtract derived current injections
     # FIXME: only works for one nl bus
+    # number of harmonics (without fundamental)
+    K = len(HARMONICS) - 1
     blocks = range(K+1)
     nl_idx_start = list(range(m, n*(K+1), n))
     nl_V = V_vec[nl_idx_start]
@@ -450,3 +447,5 @@ def hpf(V, Y, buses, plt_convergence=False):
 
 
 (V_h, err_h_final, n_iter_h) = hpf(V_h, Y_h, buses)
+
+# if __name__ == '__main__':
