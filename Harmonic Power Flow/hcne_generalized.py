@@ -3,6 +3,8 @@
 rewriting the harmonic coupled norton equivalent method in a generalized and
 modularized way
 
+requires Python 3.5 upwards (uses @ as __matmul__)
+
 fundamental pf largely based on PyPsa implementation (accessed 01.03.2021):
 https://github.com/PyPSA/PyPSA/blob/d05b22553403e69e8155fb06cf70618bf9737bf3/pypsa/pf.py#L420
 
@@ -21,8 +23,10 @@ L is last harmonic considered
 import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import *
-from scipy.linalg import block_diag
+from scipy.linalg import block_diag as block_diag_dense
+from scipy.sparse import diags, csr_matrix, hstack, vstack, block_diag
 import matplotlib.pyplot as plt
+from sys import getsizeof
 
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
@@ -35,6 +39,7 @@ MAX_ITER_H = 30
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
 THRESH_H = 1e-4
 COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
+SPARSE = True
 
 # helper definitions
 idx = pd.IndexSlice
@@ -143,39 +148,69 @@ def init_fund_state_vec(V):
     return x
 
 
-def fund_mismatch(buses, V, Y):
-    V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-    S = (buses["P1"] + 1j*buses["Q1"])/BASE_POWER
-    mismatch = np.array(V_vec*np.conj(Y.dot(V_vec)) + S, dtype="c16")
-    # again following PyPSA conventions
-    f = np.r_[mismatch.real[1:], mismatch.imag[1:]]
-    err = np.linalg.norm(f, np.Inf)
+def fund_mismatch(buses, V, Y1, sparse=SPARSE):
+    if sparse:
+        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+        S = (buses["P1"] + 1j*buses["Q1"])/BASE_POWER
+        mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
+        # again following PyPSA conventions
+        f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
+        err = np.linalg.norm(f.toarray(), np.Inf)
+    else:
+        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+        S = (buses["P1"] + 1j*buses["Q1"])/BASE_POWER
+        mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
+        # again following PyPSA conventions
+        f = np.r_[mismatch.real[1:], mismatch.imag[1:]]
+        err = np.linalg.norm(f, np.Inf)
     return f, err
 
 
-def build_jacobian(V, Y):
+def build_jacobian(V, Y1, sparse=SPARSE):
     """ fundamental Jacobian containing partial derivatives of S wrt V """
-    V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-    I_diag = np.diag(Y.dot(V_vec))
-    V_diag = np.diag(V_vec)
-    V_diag_norm = np.diag(V_vec/abs(V_vec))
+    if sparse:
+        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+        I_diag = diags(Y1 @ V_vec)
+        V_diag = diags(V_vec)
+        V_diag_norm = diags(V_vec/abs(V_vec))
 
-    dSdt = 1j*V_diag.dot(np.conj(I_diag - Y.dot(V_diag)))
+        dSdt = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
+        dSdV = V_diag_norm @ np.conj(I_diag) + \
+            V_diag @ np.conj(Y1 @ V_diag_norm)
 
-    dSdV = V_diag_norm.dot(np.conj(I_diag)) \
-        + V_diag.dot(np.conj(Y.dot(V_diag_norm)))
+        # divide sub-matrices into real and imag part, cut off slack, build J
+        dPdt = csr_matrix(dSdt[1:, 1:].real)
+        dPdV = csr_matrix(dSdV[1:, 1:].real)
+        dQdt = csr_matrix(dSdt[1:, 1:].imag)
+        dQdV = csr_matrix(dSdV[1:, 1:].imag)
+        J = vstack([hstack([dPdt, dPdV]), hstack([dQdt, dQdV])], format="csr")
+    else:
+        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+        I_diag = np.diag(Y1.dot(V_vec))
+        V_diag = np.diag(V_vec)
+        V_diag_norm = np.diag(V_vec/abs(V_vec))
 
-    dPdt = dSdt[1:, 1:].real
-    dPdV = dSdV[1:, 1:].real
-    dQdt = dSdt[1:, 1:].imag
-    dQdV = dSdV[1:, 1:].imag
-    J = np.vstack([np.hstack([dPdt, dPdV]), np.hstack([dQdt, dQdV])])
+        dSdt = 1j*V_diag.dot(np.conj(I_diag - Y1.dot(V_diag)))
+
+        dSdV = V_diag_norm.dot(np.conj(I_diag)) \
+            + V_diag.dot(np.conj(Y1.dot(V_diag_norm)))
+
+        # divide sub-matrices into real and imag part, cut off slack, build J
+        dPdt = dSdt[1:, 1:].real
+        dPdV = dSdV[1:, 1:].real
+        dQdt = dSdt[1:, 1:].imag
+        dQdV = dSdV[1:, 1:].imag
+        J = np.vstack([np.hstack([dPdt, dPdV]), np.hstack([dQdt, dQdV])])
     return J
 
 
-def update_fund_state_vec(J, x, f):
+def update_fund_state_vec(J, x, f, sparse=SPARSE):
     """ perform Newton-Raphson iteration """
-    x_new = x - spsolve(J, f)  # use sparse matrices later
+    # TODO: try other solvers
+    if sparse:
+        x_new = x - spsolve(J, f.T)
+    else:
+        x_new = x - spsolve(J, f)
     return x_new
 
 
@@ -196,15 +231,15 @@ def pf(Y, buses, plt_convergence=False):
     """
     V = init_voltages(buses, HARMONICS)
     n_iter_f = 0
-    Y = np.array(Y.loc[1])
+    Y1 = np.array(Y.loc[1])
     x = init_fund_state_vec(V)
-    f, err = fund_mismatch(buses, V, Y)
+    f, err = fund_mismatch(buses, V, Y1)
     err_t = {}
     while err > THRESH_F and n_iter_f < MAX_ITER_F:
-        J = build_jacobian(V, Y)
+        J = build_jacobian(V, Y1)
         x = update_fund_state_vec(J, x, f)
         V = update_fund_voltages(V, x)
-        f, err = fund_mismatch(buses, V, Y)
+        f, err = fund_mismatch(buses, V, Y1)
         err_t[n_iter_f] = err
         n_iter_f += 1
     # plot convergence behaviour
@@ -265,44 +300,73 @@ def current_injections(busID, V, NE):
     device = buses.loc[busID-1, "component"]
     (I_N, Y_N) = NE[device]
     V_h = V.loc[idx[:, busID-1], "V_m"]*np.exp(1j*V.loc[idx[:, busID-1], "V_a"])
-    I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not nice
+    # FIXME: Bug that results in immediate convergence in uncoupled case
+    if COUPLED_NE:
+        I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not nice
+    else:
+        I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy())
     return I_inj
 
 
-def current_balance(V, Y, buses, NE):
+def current_balance(V, Y, buses, NE, sparse=SPARSE):
     """ evaluate current balance
 
     Fundamental current balance only for nonlinear buses (n-m+1)
     Harmonic current balance for all buses and all harmonics (n*K)
     :return: vector of n-m+1 + nK complex current balances (as np.array)
     """
+    if sparse:
+        # fundamental admittance for nonlinear buses
+        Y_f = csr_matrix(np.squeeze(Y.loc[1, m:]))
+        # fundamental voltage for all buses
+        V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+        # fundamental line currents at nonlinear buses
+        dI_f = Y_f @ V_f
 
-    # fundamental admittance for nonlinear buses
-    Y_f = Y.loc[1, m:]
-    # fundamental voltage for all buses
-    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-    # fundamental line currents at nonlinear buses
-    dI_f = np.squeeze(Y_f).dot(V_f)
+        # construct V and Y from list of sub-arrays except fund
+        # TODO: test for multiple nl buses
+        Y_h = block_diag(([Y.loc[i] for i in HARMONICS[1:]]), format="csr")
+        V_h = V.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
+        # harmonic line currents at all buses
+        dI_h = Y_h @ V_h
 
-    # construct V and Y from list of sub-arrays except fund
-    # TODO: use sparse matrix
-    #  test for multiple nl buses
-    Y_h = block_diag(*[Y.loc[i] for i in HARMONICS[1:]])
-    V_h = V.loc[HARMONICS[1:], "V_m"] * np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
-    # harmonic line currents at all buses
-    dI_h = V_h.dot(Y_h)
+        for i in range(m, n):
+            # current injections of all harmonics at bus i
+            I_inj = current_injections(buses.ID[i], V, NE)
+            # fundamental current balance
+            dI_f -= I_inj[HARMONICS_FREQ[0]]
+            # harmonic current balance, subtract injection at appropriate index
+            for p in range(len(HARMONICS[1:])):
+                dI_h[p*n + m] -= I_inj[HARMONICS_FREQ[p+1]]
 
-    for i in range(m, n):
-        # current injections of all harmonics at bus i
-        I_inj = current_injections(buses.ID[i], V, NE)
-        # fundamental current balance
-        dI_f -= I_inj[HARMONICS_FREQ[0]]
-        # harmonic current balance, subtract injection at appropriate index
-        for p in range(len(HARMONICS[1:])):
-            dI_h[p*n + m] -= I_inj[HARMONICS_FREQ[p+1]]
+        # final current balance vector
+        dI = np.array([dI_f, *dI_h])
+    else:
+        # fundamental admittance for nonlinear buses
+        Y_f = Y.loc[1, m:]
+        # fundamental voltage for all buses
+        V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+        # fundamental line currents at nonlinear buses
+        dI_f = np.squeeze(Y_f).dot(V_f)
 
-    # final current balance vector
-    dI = np.array([dI_f, *dI_h])
+        # construct V and Y from list of sub-arrays except fund
+        #  TODO: test for multiple nl buses
+        Y_h = block_diag_dense(*[Y.loc[i] for i in HARMONICS[1:]])
+        V_h = V.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
+        # harmonic line currents at all buses
+        dI_h = Y_h.dot(V_h)
+
+        for i in range(m, n):
+            # current injections of all harmonics at bus i
+            I_inj = current_injections(buses.ID[i], V, NE)
+            # fundamental current balance
+            dI_f -= I_inj[HARMONICS_FREQ[0]]
+            # harmonic current balance, subtract injection at appropriate index
+            for p in range(len(HARMONICS[1:])):
+                dI_h[p*n + m] -= I_inj[HARMONICS_FREQ[p+1]]
+
+        # final current balance vector
+        dI = np.array([dI_f, *dI_h])
     return dI
 
 
@@ -330,7 +394,7 @@ def harmonic_mismatch(V, Y, buses, NE):
 
     # current mismatch
     dI = current_balance(V, Y, buses, NE)
-
+    # FIXME: Find bug somewhere here, unexpected: complex f can't be separated
     # combine both
     f = np.concatenate([dS, dI])
 
@@ -351,7 +415,7 @@ def build_harmonic_jacobian(V, Y, NE):
     V_diag = np.diag(V_vec)
     V_norm = V_vec/V.V_m
     V_norm_diag = np.diag(V_norm)
-    Y_diag = block_diag(*[Y.loc[i] for i in HARMONICS])  # TODO: use sparse
+    Y_diag = block_diag_dense(*[Y.loc[i] for i in HARMONICS])  # TODO: use sparse
 
     # IV and IT
     IV = Y_diag.dot(V_norm_diag)  # diagonal blocks for p = h
@@ -364,7 +428,6 @@ def build_harmonic_jacobian(V, Y, NE):
     nl_idx_start = list(range(m, n*(K+1), n))
     nl_V = V_vec[nl_idx_start]
     nl_V_norm = nl_V/abs(nl_V)
-    nl_buses = buses[buses.type == "nonlinear"]
 
     for a in range(n_blocks):  # iterating through blocks (harmonics) vertically
         for b in range(n_blocks):   # ... and horizontally
@@ -398,9 +461,12 @@ def build_harmonic_jacobian(V, Y, NE):
     return J
 
 
-def update_harmonic_state_vec(J, x, f):
+def update_harmonic_state_vec(J, x, f, sparse=SPARSE):
     """ perform Newton-Raphson iteration """
-    x_new = x - spsolve(J, f)  # use sparse matrices later
+    if sparse:
+        x_new = x - spsolve(J, f)
+    else:
+        x_new = x - spsolve(J, f)
     return x_new
 
 
@@ -457,7 +523,11 @@ def hpf(buses, lines, plt_convergence=False):
         print("Maximum of " + str(n_iter_h) + " iterations reached.")
     return V, err_h, n_iter_h
 
+Y = build_admittance_matrices(buses, lines, HARMONICS)
+V = init_voltages(buses, HARMONICS)
 
 (V_h, err_h_final, n_iter_h) = hpf(buses, lines)
+
+
 
 # if __name__ == '__main__':
