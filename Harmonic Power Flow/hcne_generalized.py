@@ -38,8 +38,8 @@ MAX_ITER_F = 30  # maybe better as argument of pf function
 MAX_ITER_H = 30
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
 THRESH_H = 1e-4
-COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
-SPARSE = True
+COUPLED_NE = False  # use Norton parameters of coupled vs. uncoupled model
+SPARSE = False
 
 # helper definitions
 idx = pd.IndexSlice
@@ -62,7 +62,7 @@ def A2P(x):
 buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
                                   [2, "PQ", "lin_load_1", None, 0],
                                   [3, "PQ", "lin_load_2", None, 0],
-                                  [4, "PQ", None, None, 0],
+                                  [4, "nonlinear", "smps", None, 0],
                                   [5, "nonlinear", "smps", None, 0]]),
                            columns=["ID", "type", "component", "S", "X_shunt"])
 # generate columns for all frequencies (probably not needed without Fuchs)
@@ -304,7 +304,7 @@ def current_injections(busID, V, NE):
     if COUPLED_NE:
         I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not nice
     else:
-        I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy())
+        I_inj = np.squeeze(I_N) - np.diag(np.squeeze(Y_N)).dot(V_h.to_numpy())
     return I_inj
 
 
@@ -347,7 +347,7 @@ def current_balance(V, Y, buses, NE, sparse=SPARSE):
         # fundamental voltage for all buses
         V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
         # fundamental line currents at nonlinear buses
-        dI_f = np.squeeze(Y_f).dot(V_f)
+        dI_f = np.squeeze(Y_f).dot(V_f)  # FIXME: bug in calculating dI_f
 
         # construct V and Y from list of sub-arrays except fund
         #  TODO: test for multiple nl buses
@@ -410,14 +410,14 @@ def harmonic_state_vector(V):
 
 
 def build_harmonic_jacobian(V, Y, NE):
-    # preparing objects to simplify calculation
+    # preparing arrays to simplify calculation
     V_vec = V.V_m*np.exp(1j*V.V_a)
     V_diag = np.diag(V_vec)
     V_norm = V_vec/V.V_m
     V_norm_diag = np.diag(V_norm)
     Y_diag = block_diag_dense(*[Y.loc[i] for i in HARMONICS])  # TODO: use sparse
 
-    # IV and IT
+    # IV and IT (no difference between coupled and uncoupled method)
     IV = Y_diag.dot(V_norm_diag)  # diagonal blocks for p = h
     IT = 1j*Y_diag.dot(V_diag)
 
@@ -425,17 +425,30 @@ def build_harmonic_jacobian(V, Y, NE):
     # number of harmonics (without fundamental)
     K = len(HARMONICS) - 1
     n_blocks = K+1
+    # indices of first nonlinear bus at each harmonic
     nl_idx_start = list(range(m, n*(K+1), n))
-    nl_V = V_vec[nl_idx_start]
+    # indices of all nonlinear buses
+    nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
+    nl_V = V_vec[nl_idx_all]
     nl_V_norm = nl_V/abs(nl_V)
-
-    for a in range(n_blocks):  # iterating through blocks (harmonics) vertically
-        for b in range(n_blocks):   # ... and horizontally
-            for i in range(m, n):  # iterating through nonlinear buses
-                Y_N = NE[buses.loc[i].component][1]  # in NE "1" points to Y_N
-                # TODO: test if this works correctly for multiple nl buses
-                IV[a*n+i, b*n+i] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
-                IT[a*n+i, b*n+i] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
+    if COUPLED_NE:
+        for a in range(n_blocks):  # iterating through blocks (harmonics) vertically
+            for b in range(n_blocks):   # ... and horizontally
+                for i in range(m, n):  # iterating through nonlinear buses
+                    # within NE "1" points to Y_N
+                    Y_N = NE[buses.loc[i].component][1]
+                    # TODO: test if this works correctly for multiple nl buses
+                    IV[a*n+i, b*n+i] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
+                    IT[a*n+i, b*n+i] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
+    else:
+        for a in range(n_blocks):  # iterating through blocks (harmonics) vertically
+            for b in range(n_blocks):   # ... and horizontally
+                for i in range(m, n):  # iterating through nonlinear buses
+                    # within NE "1" points to Y_N
+                    Y_N = NE[buses.loc[i].component][1]
+                    # TODO: test if this works correctly for multiple nl buses
+                    IV[a*n+i, b*n+i] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
+                    IT[a*n+i, b*n+i] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
     # crop
     IV = IV[m:, 1:]
     IT = IT[m:, 1:]
