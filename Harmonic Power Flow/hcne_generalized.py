@@ -300,7 +300,6 @@ def current_injections(busID, V, NE):
     device = buses.loc[busID-1, "component"]
     (I_N, Y_N) = NE[device]
     V_h = V.loc[idx[:, busID-1], "V_m"]*np.exp(1j*V.loc[idx[:, busID-1], "V_a"])
-    # FIXME: Bug that results in immediate convergence in uncoupled case
     if COUPLED_NE:
         I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not nice
     else:
@@ -536,6 +535,7 @@ def hpf(buses, lines, plt_convergence=False):
     elif n_iter_h == MAX_ITER_H:
         print("Maximum of " + str(n_iter_h) + " iterations reached.")
     return V, err_h, n_iter_h
+
 
 Y = build_admittance_matrices(buses, lines, HARMONICS)
 V = init_voltages(buses, HARMONICS)
