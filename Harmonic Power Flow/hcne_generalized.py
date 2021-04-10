@@ -26,7 +26,7 @@ from scipy.sparse.linalg import *
 from scipy.linalg import block_diag as block_diag_dense
 from scipy.sparse import diags, csr_matrix, hstack, vstack, block_diag
 import matplotlib.pyplot as plt
-from sys import getsizeof
+# from sys import getsizeof
 
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
@@ -74,8 +74,8 @@ buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
 buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
                            columns=["P1", "Q1"])
 # # insert fundamental powers, part of future import
-buses_power["P1"] = [0, 100, 100, 0, 250]
-buses_power["Q1"] = [0, 100, 100, 0, 100]
+buses_power["P1"] = [0, 100, 100, 150, 250]
+buses_power["Q1"] = [0, 100, 100, 100, 100]
 # combined df for buses
 buses = pd.concat([buses_const, buses_power], axis=1)
 
@@ -343,11 +343,11 @@ def current_balance(V, Y, buses, NE, sparse=SPARSE):
         dI = np.array([dI_f, *dI_h])
     else:
         # fundamental admittance for nonlinear buses
-        Y_f = Y.loc[1, m:]
+        Y_f = np.array(Y.loc[1, m:, :])
         # fundamental voltage for all buses
         V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
         # fundamental line currents at nonlinear buses
-        dI_f = np.squeeze(Y_f).dot(V_f)  # FIXME: bug in calculating dI_f
+        dI_f = Y_f @ V_f
 
         # construct V and Y from list of sub-arrays except fund
         #  TODO: test for multiple nl buses
@@ -366,7 +366,7 @@ def current_balance(V, Y, buses, NE, sparse=SPARSE):
                 dI_h[p*n + m] -= I_inj[HARMONICS_FREQ[p+1]]
 
         # final current balance vector
-        dI = np.array([dI_f, *dI_h])
+        dI = np.concatenate([dI_f, dI_h])
     return dI
 
 
@@ -394,13 +394,12 @@ def harmonic_mismatch(V, Y, buses, NE):
 
     # current mismatch
     dI = current_balance(V, Y, buses, NE)
-    # FIXME: Find bug somewhere here, unexpected: complex f can't be separated
     # combine both
     f = np.concatenate([dS, dI])
 
-    # error
+    # Convergence: err_h < THRESH_H
     err_h = np.linalg.norm(f, np.Inf)
-    return np.array([*f.real, *f.imag]), err_h
+    return np.concatenate([f.real, f.imag]), err_h
 
 
 def harmonic_state_vector(V):
@@ -421,7 +420,7 @@ def build_harmonic_jacobian(V, Y, NE):
     IV = Y_diag.dot(V_norm_diag)  # diagonal blocks for p = h
     IT = 1j*Y_diag.dot(V_diag)
 
-    # iterate through YV and subtract derived current injections
+    # iterate through IV and subtract derived current injections
     # number of harmonics (without fundamental)
     K = len(HARMONICS) - 1
     n_blocks = K+1
@@ -432,23 +431,25 @@ def build_harmonic_jacobian(V, Y, NE):
     nl_V = V_vec[nl_idx_all]
     nl_V_norm = nl_V/abs(nl_V)
     if COUPLED_NE:
-        for a in range(n_blocks):  # iterating through blocks (harmonics) vertically
-            for b in range(n_blocks):   # ... and horizontally
+        for h in range(n_blocks):  # iterating through blocks vertically
+            for p in range(n_blocks):   # ... and horizontally
                 for i in range(m, n):  # iterating through nonlinear buses
-                    # within NE "1" points to Y_N
+                    # within NE "[1]" points to Y_N
+                    # same assignment performed multiple times, not ideal
                     Y_N = NE[buses.loc[i].component][1]
-                    # TODO: test if this works correctly for multiple nl buses
-                    IV[a*n+i, b*n+i] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
-                    IT[a*n+i, b*n+i] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
+                    # subtract derived current injections at appropriate idx
+                    IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
+                                            nl_V_norm[(HARMONICS[p], i)]
+                    IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
+                                            nl_V[(HARMONICS[p], i)]
     else:
-        for a in range(n_blocks):  # iterating through blocks (harmonics) vertically
-            for b in range(n_blocks):   # ... and horizontally
-                for i in range(m, n):  # iterating through nonlinear buses
-                    # within NE "1" points to Y_N
-                    Y_N = NE[buses.loc[i].component][1]
-                    # TODO: test if this works correctly for multiple nl buses
-                    IV[a*n+i, b*n+i] -= Y_N.iloc[a, b]*nl_V_norm.iloc[b]
-                    IT[a*n+i, b*n+i] -= 1j*Y_N.iloc[a, b]*nl_V.iloc[b]
+        for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
+            for i in range(m, n):  # iterating through nonlinear buses
+                # within NE "[1]" points to Y_N
+                Y_N = NE[buses.loc[i].component][1]
+                # Y_N is one-dimensional for uncoupled case
+                IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
+                IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
     # crop
     IV = IV[m:, 1:]
     IT = IT[m:, 1:]
