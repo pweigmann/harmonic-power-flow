@@ -27,8 +27,11 @@ from scipy.sparse.linalg import spsolve
 from scipy.linalg import solve, block_diag as block_diag_dense
 from scipy.sparse import diags, csr_matrix, hstack, vstack, block_diag
 import matplotlib.pyplot as plt
-# from sys import getsizeof
+from sys import getsizeof
 import time
+
+# start timing
+t_start = time.perf_counter()
 
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
@@ -41,7 +44,9 @@ MAX_ITER_H = 30
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
 THRESH_H = 1e-4
 COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
-SPARSE = False
+SPARSE = True
+
+# FIXME: Different convergence for Sparse and Dense runs during fund pf (when coupled)
 
 # helper definitions
 idx = pd.IndexSlice
@@ -63,10 +68,25 @@ def A2P(x):
 # infrastructure (TODO: import infrastructure from file)
 # df for constant properties of buses
 buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
-                                  [2, "PQ", "lin_load_1", None, 0],
-                                  [3, "PQ", "lin_load_2", None, 0],
-                                  [4, "nonlinear", "smps", None, 0],
-                                  [5, "nonlinear", "smps", None, 0]]),
+                                     [2, "PQ", "lin_load_1", None, 0],
+                                     [3, "PQ", "lin_load_2", None, 0],
+                                     [4, "PQ", "lin_load_1", None, 0],
+                                     [5, "PQ", "lin_load_1", None, 0],
+                                     [6, "PQ", "lin_load_1", None, 0],
+                                     [7, "PQ", "lin_load_1", None, 0],
+                                     [8, "PQ", "lin_load_1", None, 0],
+                                     [9, "PQ", "lin_load_1", None, 0],
+                                     [10, "PQ", "lin_load_1", None, 0],
+                                     [11, "PQ", "lin_load_2", None, 0],
+                                     [12, "PQ", "lin_load_1", None, 0],
+                                     [13, "PQ", "lin_load_2", None, 0],
+                                     [14, "nonlinear", "smps", None, 0],
+                                     [15, "nonlinear", "smps", None, 0],
+                                     [16, "nonlinear", "smps", None, 0],
+                                     [17, "nonlinear", "smps", None, 0],
+                                     [18, "nonlinear", "smps", None, 0],
+                                     [19, "nonlinear", "smps", None, 0],
+                                     [20, "nonlinear", "smps", None, 0]]),
                            columns=["ID", "type", "component", "S", "X_shunt"])
 # generate columns for all frequencies (probably not needed without Fuchs)
 # columns = []
@@ -77,8 +97,10 @@ buses_const = pd.DataFrame(np.array([[1, "slack", "generator", 1000, 0.0001],
 buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
                            columns=["P1", "Q1"])
 # # insert fundamental powers, part of future import
-buses_power["P1"] = [0, 100, 100, 150, 250]
-buses_power["Q1"] = [0, 100, 100, 100, 100]
+buses_power["P1"] = [0, 100, 100, 150, 250, 0, 100, 100, 150, 250, 0,
+                     100, 100, 150, 250, 0, 100, 100, 150, 250]
+buses_power["Q1"] = [0, 100, 100, 100, 100, 0, 100, 100, 100, 100, 0,
+                     100, 100, 100, 100, 0, 100, 100, 100, 100]
 # combined df for buses
 buses = pd.concat([buses_const, buses_power], axis=1)
 
@@ -87,10 +109,28 @@ m = min(buses.index[buses["type"] == "nonlinear"])
 n = len(buses)
 
 lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
-                                  [2, 2, 3, 0.02, 0.08],
-                                  [3, 3, 4, 0.01, 0.02],
-                                  [4, 4, 5, 0.01, 0.02],
-                                  [5, 5, 1, 0.01, 0.02]]),
+                               [2, 2, 3, 0.02, 0.08],
+                               [3, 3, 4, 0.01, 0.02],
+                               [4, 4, 5, 0.01, 0.02],
+                               [5, 5, 6, 0.01, 0.02],
+                               [6, 6, 7, 0.02, 0.08],
+                               [7, 7, 8, 0.01, 0.02],
+                               [8, 8, 9, 0.01, 0.02],
+                               [9, 9, 10, 0.1, 0.02],
+                               [10, 10, 11, 0.02, 0.08],
+                               [11, 11, 12, 0.01, 0.02],
+                               [12, 12, 13, 0.01, 0.02],
+                               [13, 13, 14, 0.1, 0.02],
+                               [14, 14, 15, 0.02, 0.08],
+                               [15, 15, 16, 0.01, 0.02],
+                               [16, 16, 17, 0.01, 0.2],
+                               [17, 18, 19, 0.01, 0.02],
+                               [18, 17, 18, 0.01, 0.2],
+                               [19, 19, 20, 0.01, 0.02],
+                               [20, 20, 1, 0.02, 0.08],
+                               [21, 3, 14, 0.01, 0.02],
+                               [22, 4, 15, 0.01, 0.02],
+                               [23, 1, 11, 0.01, 0.02]]),
                         columns=["ID", "fromID", "toID", "R", "X"])
 
 
@@ -499,7 +539,7 @@ def build_harmonic_jacobian(V, Y, NE):
         V_diag = np.diag(V_vec)
         V_norm = V_vec/V.V_m
         V_norm_diag = np.diag(V_norm)
-        Y_diag = block_diag_dense(*[Y.loc[i] for i in HARMONICS])  # TODO: use sparse
+        Y_diag = block_diag_dense(*[Y.loc[i] for i in HARMONICS])
 
         # IV and IT (no difference between coupled and uncoupled method)
         IV = Y_diag.dot(V_norm_diag)  # diagonal blocks for p = h
@@ -593,14 +633,21 @@ def hpf(buses, lines, plt_convergence=False):
              err_t: error over time
              n_iter_f: number of iterations performed
     """
+    global t_end_init, t_end_pf, t_end_NE_import
+
     Y = build_admittance_matrices(buses, lines, HARMONICS)
+    t_end_init = time.perf_counter()
     V, err1_t, n_converged = pf(Y, buses)
+    t_end_pf = time.perf_counter()
     NE = import_Norton_Equivalents(buses, COUPLED_NE)
+    t_end_NE_import = time.perf_counter()
     n_iter_h = 0
     f, err_h = harmonic_mismatch(V, Y, buses, NE)
     x = harmonic_state_vector(V)
     # import all NE of nonlinear devices present in "buses"
     err_h_t = {}
+    global t_start_hpf_solve, t_end_hpf_solve
+    t_start_hpf_solve = time.perf_counter()
     while err_h > THRESH_H and n_iter_h < MAX_ITER_H:
         J = build_harmonic_jacobian(V, Y, NE)
         x = update_harmonic_state_vec(J, x, f)
@@ -608,6 +655,7 @@ def hpf(buses, lines, plt_convergence=False):
         (f, err_h) = harmonic_mismatch(V, Y, buses, NE)
         err_h_t[n_iter_h] = err_h
         n_iter_h += 1
+    t_end_hpf_solve = time.perf_counter()
 
     # getting rid of negative voltage magnitudes:
     # add pi to negative voltage magnitudes
@@ -623,13 +671,24 @@ def hpf(buses, lines, plt_convergence=False):
               " iterations.")
     elif n_iter_h == MAX_ITER_H:
         print("Maximum of " + str(n_iter_h) + " iterations reached.")
-    return V, err_h, n_iter_h
+    return V, err_h, n_iter_h, J
 
 
-t_start = time.perf_counter()
-(V_h, err_h_final, n_iter_h) = hpf(buses, lines)
+(V_h, err_h_final, n_iter_h, J) = hpf(buses, lines, plt_convergence=False)
+
 t_end = time.perf_counter()
+print("Init execution time: " + str(t_end_init - t_start) + " s")
+print("Fundamental Power Flow execution time: " +
+      str(t_end_pf - t_end_init) + " s")
+print("Norton Parameter import execution time: " +
+      str(t_end_NE_import - t_end_pf) + " s")
+print("Harmonic Power Flow execution time: " +
+      str(t_end - t_end_NE_import) + " s")
+print("- Only HPF solve execution time: " +
+      str(t_end_hpf_solve - t_start_hpf_solve) + " s")
+print("Total execution time: " +
+      str(t_end - t_start) + " s")
 
-print("Execution time: " + str(t_end - t_start) + " s")
 
+print("Harmonic Jacobian memory size: " + str(getsizeof(J)) + " Bytes")
 # if __name__ == '__main__':
