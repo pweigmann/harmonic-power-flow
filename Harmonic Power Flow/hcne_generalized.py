@@ -36,14 +36,15 @@ t_start = time.perf_counter()
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-HARMONICS = [1, 5, 7]
+harmonics_range = range(1, 41, 2)
+HARMONICS = [h for h in harmonics_range]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 MAX_ITER_F = 30  # maybe better as argument of pf function
 MAX_ITER_H = 30
 THRESH_F = 1e-6  # error threshold of fundamental mismatch function
 THRESH_H = 1e-4
-COUPLED_NE = True  # use Norton parameters of coupled vs. uncoupled model
+COUPLED_NE = False  # use Norton parameters of coupled vs. uncoupled model
 SPARSE = True
 
 # FIXME: Different convergence for Sparse and Dense runs during fund pf (when coupled)
