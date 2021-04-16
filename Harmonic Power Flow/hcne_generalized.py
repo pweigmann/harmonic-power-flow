@@ -33,21 +33,16 @@ import time
 # start timing
 t_start = time.perf_counter()
 
-# global variables TODO: import as "settings.csv"
+# global variables TODO: import from config file
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-harmonics_range = range(1, 41, 2)
-HARMONICS = [h for h in harmonics_range]
+H_MAX = 7
+HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
-MAX_ITER_F = 30  # maybe better as argument of pf function
-MAX_ITER_H = 30
-THRESH_F = 1e-6  # error threshold of fundamental mismatch function
-THRESH_H = 1e-4
-COUPLED_NE = False  # use Norton parameters of coupled vs. uncoupled model
-SPARSE = True
 
-# FIXME: Different convergence for Sparse and Dense runs during fund pf (when coupled)
+# COUPLED_NE = True  # parameter of hpf now
+SPARSE = False
 
 # helper definitions
 idx = pd.IndexSlice
@@ -160,7 +155,6 @@ def init_network(name, from_csv=True):
     return buses, lines, m, n
 
 
-
 # Functions for Fundamental Power Flow
 def build_admittance_matrices(buses, lines, harmonics):
     """ Create admittance matrices for all harmonics
@@ -224,7 +218,7 @@ def fund_mismatch(buses, V, Y1):
         mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
         # again following PyPSA conventions
         f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
-        err = np.linalg.norm(f.toarray(), np.Inf)
+        err = f.max()
     else:
         V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
         S = (buses["P"] + 1j*buses["Q"])/BASE_POWER
@@ -261,7 +255,6 @@ def build_jacobian(V, Y1):
         V_diag_norm = np.diag(V_vec/abs(V_vec))
 
         dSdt = 1j*V_diag.dot(np.conj(I_diag - Y1.dot(V_diag)))
-
         dSdV = V_diag_norm.dot(np.conj(I_diag)) \
             + V_diag.dot(np.conj(Y1.dot(V_diag_norm)))
 
@@ -291,7 +284,7 @@ def update_fund_voltages(V, x):
     return V
 
 
-def pf(Y, buses, plt_convergence=False):
+def pf(Y, buses, plt_convergence=False, thresh_f = 1e-6, max_iter_f = 30):
     """ execute fundamental power flow
 
     :param plt_convergence(default=False), shows convergence behaviour by
@@ -306,7 +299,7 @@ def pf(Y, buses, plt_convergence=False):
     x = init_fund_state_vec(V)
     f, err = fund_mismatch(buses, V, Y1)
     err_t = {}
-    while err > THRESH_F and n_iter_f < MAX_ITER_F:
+    while err > thresh_f and n_iter_f < max_iter_f:
         J = build_jacobian(V, Y1)
         x = update_fund_state_vec(J, x, f)
         V = update_fund_voltages(V, x)
@@ -317,10 +310,10 @@ def pf(Y, buses, plt_convergence=False):
     if plt_convergence:
         plt.plot(list(err_t.keys()), list(err_t.values()))
     print(V.loc[1])
-    if n_iter_f < MAX_ITER_F:
+    if n_iter_f < max_iter_f:
         print("Fundamental power flow converged after " + str(n_iter_f) +
               " iterations.")
-    elif n_iter_f == MAX_ITER_F:
+    elif n_iter_f == max_iter_f:
         print("Maximum of " + str(n_iter_f) + " iterations reached.")
     return V, err_t, n_iter_f
 
@@ -371,8 +364,9 @@ def current_injections(busID, V, NE):
     device = buses.loc[busID-1, "component"]
     (I_N, Y_N) = NE[device]
     V_h = V.loc[idx[:, busID-1], "V_m"]*np.exp(1j*V.loc[idx[:, busID-1], "V_a"])
-    if COUPLED_NE:
-        I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)  # not nice
+    # coupled: Y_N is a matrix, uncoupled: vector
+    if Y_N.shape[0] > 1:
+        I_inj = np.squeeze(I_N) - Y_N.dot(V_h.to_numpy()).droplevel(0)
     else:
         I_inj = np.squeeze(I_N) - np.diag(np.squeeze(Y_N)).dot(V_h.to_numpy())
     return I_inj
@@ -494,7 +488,7 @@ def harmonic_state_vector(V):
     return x
 
 
-def build_harmonic_jacobian(V, Y, NE):
+def build_harmonic_jacobian(V, Y, NE, coupled):
     if SPARSE:
         # some arrays to simplify calculation
         V_vec = V.V_m*np.exp(1j*V.V_a)
@@ -517,7 +511,7 @@ def build_harmonic_jacobian(V, Y, NE):
         nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
         nl_V = V_vec[nl_idx_all]
         nl_V_norm = nl_V/abs(nl_V)
-        if COUPLED_NE:
+        if coupled:
             for h in range(n_blocks):  # iterating through blocks vertically
                 for p in range(n_blocks):   # ... and horizontally
                     for i in range(m, n):  # iterating through nonlinear buses
@@ -582,7 +576,7 @@ def build_harmonic_jacobian(V, Y, NE):
         nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
         nl_V = V_vec[nl_idx_all]
         nl_V_norm = nl_V/abs(nl_V)
-        if COUPLED_NE:
+        if coupled:
             for h in range(n_blocks):  # iterating through blocks vertically
                 for p in range(n_blocks):   # ... and horizontally
                     for i in range(m, n):  # iterating through nonlinear buses
@@ -651,7 +645,8 @@ def update_harmonic_voltages(V, x):
     return V
 
 
-def hpf(buses, lines, plt_convergence=False):
+def hpf(buses, lines, coupled, sparse, thresh_h = 1e-4, max_iter_h = 50,
+        plt_convergence=False):
     """ execute fundamental power flow
 
     :param plt_convergence(default=False), shows convergence behaviour by
@@ -660,13 +655,14 @@ def hpf(buses, lines, plt_convergence=False):
              err_t: error over time
              n_iter_f: number of iterations performed
     """
-    global t_end_init, t_end_pf, t_end_NE_import
+    global t_end_init, t_end_pf, t_end_NE_import, SPARSE
 
+    SPARSE = sparse  # remove after verifying sparse calculations
     Y = build_admittance_matrices(buses, lines, HARMONICS)
     t_end_init = time.perf_counter()
     V, err1_t, n_converged = pf(Y, buses)
     t_end_pf = time.perf_counter()
-    NE = import_Norton_Equivalents(buses, COUPLED_NE)
+    NE = import_Norton_Equivalents(buses, coupled)
     t_end_NE_import = time.perf_counter()
     n_iter_h = 0
     f, err_h = harmonic_mismatch(V, Y, buses, NE)
@@ -675,8 +671,8 @@ def hpf(buses, lines, plt_convergence=False):
     err_h_t = {}
     global t_start_hpf_solve, t_end_hpf_solve
     t_start_hpf_solve = time.perf_counter()
-    while err_h > THRESH_H and n_iter_h < MAX_ITER_H:
-        J = build_harmonic_jacobian(V, Y, NE)
+    while err_h > thresh_h and n_iter_h < max_iter_h:
+        J = build_harmonic_jacobian(V, Y, NE, coupled)
         x = update_harmonic_state_vec(J, x, f)
         V = update_harmonic_voltages(V, x)
         (f, err_h) = harmonic_mismatch(V, Y, buses, NE)
@@ -693,16 +689,17 @@ def hpf(buses, lines, plt_convergence=False):
     if plt_convergence:
         plt.plot(list(err_h_t.keys()), list(err_h_t.values()))
     print(V)
-    if n_iter_h < MAX_ITER_H:
+    if n_iter_h < max_iter_h:
         print("Harmonic power flow converged after " + str(n_iter_h) +
               " iterations.")
-    elif n_iter_h == MAX_ITER_H:
+    elif n_iter_h == max_iter_h:
         print("Maximum of " + str(n_iter_h) + " iterations reached.")
     return V, err_h, n_iter_h, J
 
 
-buses, lines, m, n = init_network("net1")
-V_h, err_h_final, n_iter_h, J = hpf(buses, lines, plt_convergence=False)
+buses, lines, m, n = init_network("net2")
+V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True, sparse=True,
+                                    plt_convergence=False)
 
 
 t_end = time.perf_counter()
