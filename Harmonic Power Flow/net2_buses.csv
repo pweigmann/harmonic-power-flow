@@ -1,0 +1,6 @@
+ID;type;component;S;X_shunt;P;Q
+1;slack;generator;1000;0.0001;0;0
+2;PQ;lin_load_1;0;0;100;100
+3;PQ;lin_load_2;0;0;100;100
+4;nonlinear;smps;0;0;150;100
+5;nonlinear;smps;0;0;250;100

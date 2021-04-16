@@ -41,9 +41,6 @@ HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 
-# COUPLED_NE = True  # parameter of hpf now
-SPARSE = False
-
 # helper definitions
 idx = pd.IndexSlice
 
