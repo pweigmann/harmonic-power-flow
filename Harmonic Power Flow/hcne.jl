@@ -114,16 +114,27 @@ end
 
 
 function init_fund_state_vec(u)
-    x1 = u[1].v
-    x2 = u[1].ϕ
+    xv = u[1].v
+    xϕ = u[1].ϕ
     for h in HARMONICS[2:end]
-        x1 = vcat(x1, u[h].v)
-        x2 = vcat(x2, u[h].ϕ)
+        xv = vcat(xv, u[h].v)
+        xϕ = vcat(xϕ, u[h].ϕ)
     end
-    vcat(x1, x2)
+    vcat(xv, xϕ)
+end
+
+
+function fund_mismatch(nodes, u, LY_1)
+    u1 = u[1].v .* exp.(1im*u[1].ϕ)
+    s = (nodes.P + 1im*nodes.Q)/BASE_POWER
+    mismatch = u1 .* conj(LY_1*u1) + s
+    f = vcat(real(mismatch[2:end]), imag(mismatch[2:end]))
+    err = maximum(f)
+    f, err
 end
 
 nodes, lines, m, n = init_network("net2")
-LY_h = admittance_matrices(nodes, lines, HARMONICS)
+LY = admittance_matrices(nodes, lines, HARMONICS)
 u = init_voltages(nodes, HARMONICS)
 x = init_fund_state_vec(u)
+f, err_f = fund_mismatch(nodes, u, LY[1])
