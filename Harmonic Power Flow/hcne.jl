@@ -192,21 +192,42 @@ function pf(LY, nodes, thresh_f = 1e-6, max_iter_f = 30,
     end
 
     if n_iter_f < max_iter_f
-        print("Fundamental power flow converged after ", n_iter_f, 
+        println("Fundamental power flow converged after ", n_iter_f, 
               " iterations.")
     elseif n_iter_f == max_iter_f
-        print("Maximum of ", n_iter_f, " iterations reached.")
+        println("Maximum of ", n_iter_f, " iterations reached.")
     end
     u, err_f_t, n_iter_f
 end
 
 
+# Harmonic Power Flow functions
+function import_Norton_Equivalents(nodes, coupled=true, folder_path="")
+    NE = Dict()
+    nl_components = unique(nodes[nodes.type .== "nonlinear", "component"])
+    for device in nl_components
+        NE_df = CSV.read("harmonic-power-flow\\Circuit Simulation\\" * device * "_NE.csv", DataFrame)
+        # transform to Complex type, enough to strip first paranthesis for successful parse
+        values = mapcols!(col -> parse.(ComplexF64, strip.(col, ['('])), NE_df[:, 3:end])
+        NE_device = hcat(NE_df[:,1:2], values)
+
+        if coupled
+            I_N = Array(NE_device[NE_device.Parameter .== "I_N_c",3:end])/base_current
+            Y_N = Array(NE_device[NE_device.Parameter .== "Y_N_c",3:end])/base_admittance
+        else
+            I_N = Array(NE_device[NE_device.Parameter .== "I_N_uc",3:end])/base_current
+            Y_N = Array(NE_device[NE_device.Parameter .== "Y_N_uc",3:end])/base_admittance
+        end    
+        NE[device] = [I_N, Y_N]
+    end
+    NE
+end
+
 nodes, lines, m, n = init_network("net2")
 LY = admittance_matrices(nodes, lines, HARMONICS)
 u, err_f_t, n_iter_f = pf(LY, nodes)
-
-
-u[1]
+println(u[1])
+NE = import_Norton_Equivalents(nodes)
 
 
 # function harmonic_state_vec(u)

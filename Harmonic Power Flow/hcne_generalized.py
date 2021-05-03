@@ -21,6 +21,10 @@ L is last harmonic considered
 #  variable naming convention
 #  cleaner way of converting between panda and numpy objects
 
+# todo: task 1
+#  task 2
+
+
 import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import spsolve
@@ -36,7 +40,7 @@ t_start = time.perf_counter()
 # global variables TODO: import from config file
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-H_MAX = 7
+H_MAX = 5
 HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
@@ -183,7 +187,6 @@ def build_admittance_matrices(buses, lines, harmonics):
                 Y[n, n] = -sum(Y[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
             else:
                 Y[n, n] = -sum(Y[n, :])
-
         Y_all.loc[h] = Y
     return Y_all
 
@@ -281,7 +284,7 @@ def update_fund_voltages(V, x):
     return V
 
 
-def pf(Y, buses, plt_convergence=False, thresh_f = 1e-6, max_iter_f = 30):
+def pf(Y, buses, thresh_f = 1e-6, max_iter_f = 30, plt_convergence=False):
     """ execute fundamental power flow
 
     :param plt_convergence(default=False), shows convergence behaviour by
@@ -330,7 +333,7 @@ def import_Norton_Equivalents(buses, coupled):
     #  alternative format? (e.g. HDF5 instead of csv)
 
     NE = {}
-    nl_components = buses.component[buses.type == "nonlinear"]
+    nl_components = buses.component[buses.type == "nonlinear"].unique()
     for device in nl_components:
         file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
                         + device + "_NE.csv")
