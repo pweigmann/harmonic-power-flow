@@ -124,9 +124,9 @@ end
 
 
 function fund_state_vec(u)
-    xv = u[1].v[2:end]
     xϕ = u[1].ϕ[2:end]
-    vcat(xv, xϕ)  # note: magnitude first
+    xv = u[1].v[2:end]
+    vcat(xϕ, xv)  # note: phase first
 end
 
 
@@ -158,18 +158,18 @@ function fund_jacobian(u, LY)
     dQdv = imag(dSdv[2:end, 2:end])
 
     J_1 = vcat(hcat(dPdϕ, dPdv), 
-            hcat(dQdϕ, dQdv))
+               hcat(dQdϕ, dQdv))
 end
 
 
 function update_fund_state_vec(J, x, f)
-    x_new = x - J_1\f  # Newton-Raphson iteration
+    x_new = x - J\f  # Newton-Raphson iteration
 end
 
 
 function update_fund_voltages(u, x)
-    u[1].v[2:end] = x[1:(length(x)÷2)]
-    u[1].ϕ[2:end] = x[(length(x)÷2+1):end]
+    u[1].ϕ[2:end] = x[1:(length(x)÷2)]
+    u[1].v[2:end] = x[(length(x)÷2+1):end]
     u
 end
 
@@ -191,8 +191,6 @@ function pf(LY, nodes, thresh_f = 1e-6, max_iter_f = 30,
         n_iter_f += 1
     end
 
-    
-
     if n_iter_f < max_iter_f
         print("Fundamental power flow converged after ", n_iter_f, 
               " iterations.")
@@ -204,20 +202,19 @@ end
 
 
 nodes, lines, m, n = init_network("net2")
-
+LY = admittance_matrices(nodes, lines, HARMONICS)
 u, err_f_t, n_iter_f = pf(LY, nodes)
-# where is the bug
 
 
+u[1]
 
 
-
-function harmonic_state_vec(u)
-    xv = u[1].v[2:end]
-    xϕ = u[1].ϕ[2:end]
-    for h in HARMONICS[2:end]
-        xv = vcat(xv, u[h].v)
-        xϕ = vcat(xϕ, u[h].ϕ)
-    end
-    vcat(xv, xϕ)  # note: magnitude first
-end
+# function harmonic_state_vec(u)
+#     xv = u[1].v[2:end]
+#     xϕ = u[1].ϕ[2:end]
+#     for h in HARMONICS[2:end]
+#         xv = vcat(xv, u[h].v)
+#         xϕ = vcat(xϕ, u[h].ϕ)
+#     end
+#     vcat(xv, xϕ)  # note: magnitude first
+# end
