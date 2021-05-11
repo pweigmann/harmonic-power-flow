@@ -202,7 +202,7 @@ end
 
 
 # Harmonic Power Flow functions
-function import_Norton_Equivalents(nodes, coupled=true, folder_path="")
+function import_Norton_Equivalents(nodes, coupled, folder_path="")
     NE = Dict()
     nl_components = unique(nodes[nodes.type .== "nonlinear", "component"])
     for device in nl_components
@@ -210,31 +210,54 @@ function import_Norton_Equivalents(nodes, coupled=true, folder_path="")
         # transform to Complex type, enough to strip first paranthesis for successful parse
         values = mapcols!(col -> parse.(ComplexF64, strip.(col, ['('])), NE_df[:, 3:end])
         NE_device = hcat(NE_df[:,1:2], values)
-
+        # filter columns for considered harmonics
+        NE_device = NE_device[:, Between(begin, string(H_MAX*NET_FREQ))]
+        # change to pu system and choose if coupled 
         if coupled
-            I_N = Array(NE_device[NE_device.Parameter .== "I_N_c",3:end])/base_current
-            Y_N = Array(NE_device[NE_device.Parameter .== "Y_N_c",3:end])/base_admittance
+            I_N = Array(NE_device[NE_device.Parameter .== "I_N_c", 3:end])/base_current
+            LY_N_full = NE_device[NE_device.Parameter .== "Y_N_c", 2:end]
+            LY_N = Array(LY_N_full[LY_N_full.Frequency .<= H_MAX*NET_FREQ,2:end])/base_admittance
         else
-            I_N = Array(NE_device[NE_device.Parameter .== "I_N_uc",3:end])/base_current
-            Y_N = Array(NE_device[NE_device.Parameter .== "Y_N_uc",3:end])/base_admittance
+            I_N = Array(NE_device[NE_device.Parameter .== "I_N_uc", 3:end])/base_current
+            LY_N = Array(NE_device[NE_device.Parameter .== "Y_N_uc", 3:end])/base_admittance
         end    
-        NE[device] = [I_N, Y_N]
+        NE[device] = [I_N, LY_N]
     end
     NE
 end
+
+"""calculates the harmonic current injections at one node"""
+function current_injections(nodeID, u, NE)
+    component = nodes[nodes.ID .== nodeID, "component"][1]
+    I_N, LY_N = NE[component]
+    # u as dict of dfs makes building this vector a bit complicated
+    # u_h = [df[nodeID,"v"] for (harmonic, df) in u] .* exp.(1im*[df[nodeID,"ϕ"] for (harmonic, df) in u])  # this works but sorting is unclear
+    u_h = ComplexF64[]
+    for h in HARMONICS
+        push!(u_h, u[h][nodeID, "v"] * exp(1im*u[h][nodeID, "ϕ"]))
+    end
+    # coupled: Y_N is a matrix, uncoupled: vector
+    if size(LY_N)[1] > 1  # coupled case
+        i_inj = vec(I_N) - vec(LY_N*u_h)  # python, net2 ✓
+    else  # uncoupled case
+        i_inj = vec(I_N) - spdiagm(vec(LY_N))*u_h # python, net2 ✓
+    end
+    i_inj
+end
+
+
+
+
 
 nodes, lines, m, n = init_network("net2")
 LY = admittance_matrices(nodes, lines, HARMONICS)
 u, err_f_t, n_iter_f = pf(LY, nodes)
 println(u[1])
-NE = import_Norton_Equivalents(nodes)
+coupled = true
+NE = import_Norton_Equivalents(nodes, coupled)
 
 
 
-#function current_injections(nodeID, u, NE)
-component = nodes[nodes.ID .== nodeID, "component"][1]
-I_N, LY_N = NE[component]
-u_h = 
 
 
 

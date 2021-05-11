@@ -370,7 +370,7 @@ def current_injections(busID, V, NE):
 
 
 def current_balance(V, Y, buses, NE):
-    """ evaluate current balance
+    """ evaluate current balance at all buses
 
     Fundamental current balance only for nonlinear buses (n-m+1)
     Harmonic current balance for all buses and all harmonics (n*K)
@@ -696,7 +696,7 @@ def hpf(buses, lines, coupled, sparse, thresh_h = 1e-4, max_iter_h = 50,
 
 buses, lines, m, n = init_network("net2")
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True, sparse=True,
-                                    plt_convergence=True)
+                                    plt_convergence=False)
 
 
 t_end = time.perf_counter()
