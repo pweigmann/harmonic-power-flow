@@ -13,7 +13,7 @@ clear all
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 5000;   % highest harmonic simulated, min = 150
+h_max = 500;   % highest harmonic simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
@@ -185,7 +185,7 @@ for i = (1:length(supply_harmonics))
         plot(time, Vs)
         title('Supply voltage, time domain')
         xlabel('t (sec)')
-        ylabel('Voltage V(t)')
+        ylabel('Voltage (V)')
         
         subplot(2,2,2)
         bar(H/50, Vs_spec)
@@ -194,13 +194,13 @@ for i = (1:length(supply_harmonics))
         xticks((1:2:h_plot_max))
         title('Supply voltage, frequency domain')
         xlabel('Harmonic (fund. = 50 Hz)')
-        ylabel('Voltage V(f)')
+        ylabel('Voltage (V)')
 
         subplot(2,2,3)
         plot(time, Is)
         title('Current injection, time domain')
         xlabel('t (sec)')
-        ylabel('Current I(t)')
+        ylabel('Current (A)')
 
         subplot(2,2,4)
         bar(H/50, I_inj)
@@ -208,7 +208,7 @@ for i = (1:length(supply_harmonics))
         xticks((1:2:h_plot_max))
         title('Current injection, frequency domain')
         xlabel('Harmonic (fund. = 50 Hz)')
-        ylabel('Current I(f)')
+        ylabel('Current (A)')
     end
 end
 

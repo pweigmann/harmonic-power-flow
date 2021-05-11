@@ -230,6 +230,14 @@ println(u[1])
 NE = import_Norton_Equivalents(nodes)
 
 
+
+#function current_injections(nodeID, u, NE)
+component = nodes[nodes.ID .== nodeID, "component"][1]
+I_N, LY_N = NE[component]
+u_h = 
+
+
+
 # function harmonic_state_vec(u)
 #     xv = u[1].v[2:end]
 #     xϕ = u[1].ϕ[2:end]

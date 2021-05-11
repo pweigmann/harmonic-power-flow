@@ -21,9 +21,6 @@ L is last harmonic considered
 #  variable naming convention
 #  cleaner way of converting between panda and numpy objects
 
-# todo: task 1
-#  task 2
-
 
 import numpy as np
 import pandas as pd
@@ -388,7 +385,7 @@ def current_balance(V, Y, buses, NE):
         dI_f = Y_f @ V_f
 
         # construct V and Y from list of sub-arrays except fund
-        Y_h = block_diag(([Y.loc[i] for i in HARMONICS[1:]]), format="csr")
+        Y_h = block_diag(([np.array(Y.loc[i]) for i in HARMONICS[1:]]), format="csr")
         V_h = V.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
         # harmonic line currents at all buses
         dI_h = Y_h @ V_h
@@ -492,10 +489,10 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
     if SPARSE:
         # some arrays to simplify calculation
         V_vec = V.V_m*np.exp(1j*V.V_a)
-        V_diag = diags(V_vec)
+        V_diag = diags(np.array(V_vec))
         V_norm = V_vec/V.V_m
-        V_norm_diag = diags(V_norm)
-        Y_diag = block_diag([Y.loc[i] for i in HARMONICS], format="csr")
+        V_norm_diag = diags(np.array(V_norm))
+        Y_diag = block_diag([np.array(Y.loc[i]) for i in HARMONICS], format="csr")
 
         # IV and IT, convert to lil_matrix for more efficient element addition
         IV = (Y_diag @ V_norm_diag).tolil()  # diagonal blocks for p = h
@@ -509,7 +506,7 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
         nl_idx_start = list(range(m, n*(K+1), n))
         # indices of all nonlinear buses
         nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
-        nl_V = V_vec[nl_idx_all]
+        nl_V = V_vec.iloc[nl_idx_all]
         nl_V_norm = nl_V/abs(nl_V)
         if coupled:
             for h in range(n_blocks):  # iterating through blocks vertically
@@ -574,7 +571,7 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
         nl_idx_start = list(range(m, n*(K+1), n))
         # indices of all nonlinear buses
         nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
-        nl_V = V_vec[nl_idx_all]
+        nl_V = V_vec.iloc[nl_idx_all]
         nl_V_norm = nl_V/abs(nl_V)
         if coupled:
             for h in range(n_blocks):  # iterating through blocks vertically
@@ -699,7 +696,7 @@ def hpf(buses, lines, coupled, sparse, thresh_h = 1e-4, max_iter_h = 50,
 
 buses, lines, m, n = init_network("net2")
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True, sparse=True,
-                                    plt_convergence=False)
+                                    plt_convergence=True)
 
 
 t_end = time.perf_counter()
