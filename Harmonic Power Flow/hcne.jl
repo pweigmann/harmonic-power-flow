@@ -2,6 +2,7 @@ using DataFrames
 using OrderedCollections: OrderedDict
 using CSV
 using SparseArrays
+using BlockArrays
 
 """
 requires Julia 1.6 (spdiagm)
@@ -11,6 +12,10 @@ u: complex voltage
 v: voltage magnitude
 ϕ: voltage phase
 
+
+TODO 
+- harmonize usage of _1 or _f to reference fundamental frequency
+- add docstrings, rework comments  
 """
 
 # global variables
@@ -31,6 +36,7 @@ K = length(HARMONICS) - 1
 
 function import_nodes_from_csv(filename)
     df = CSV.read(filename * "_buses.csv", DataFrame)
+    df
 end
 
 
@@ -232,22 +238,46 @@ function current_injections(nodeID, u, NE)
     I_N, LY_N = NE[component]
     # u as dict of dfs makes building this vector a bit complicated
     # u_h = [df[nodeID,"v"] for (harmonic, df) in u] .* exp.(1im*[df[nodeID,"ϕ"] for (harmonic, df) in u])  # this works but sorting is unclear
+    # this might work:
+    # u_h = vcat([u[h][nodeID, "v"] .* exp.(1im*u[h][nodeID, "ϕ"]) for h in HARMONICS]...)
     u_h = ComplexF64[]
     for h in HARMONICS
         push!(u_h, u[h][nodeID, "v"] * exp(1im*u[h][nodeID, "ϕ"]))
     end
     # coupled: Y_N is a matrix, uncoupled: vector
     if size(LY_N)[1] > 1  # coupled case
-        i_inj = vec(I_N) - vec(LY_N*u_h)  # python, net2 ✓
+        i_inj = vec(I_N) - vec(LY_N*u_h)  # TEST python, net2 ✓
     else  # uncoupled case
-        i_inj = vec(I_N) - spdiagm(vec(LY_N))*u_h # python, net2 ✓
+        i_inj = vec(I_N) - spdiagm(vec(LY_N))*u_h # TEST python, net2 ✓
     end
     i_inj
 end
 
+function current_balance(u, LY, nodes, NE)
+    # fundamental admittance matrix for nonlinear nodes
+    LY_1_nl = LY[1][m:end,:]
+    u_1 = u[1].v .* exp.(1im*u[1].ϕ)
+    # fundamental line currents at nonlinear nodes
+    dI_1 = LY_1_nl * u_1  # TEST python, net2 ✓
+    # harmonic admittance matrices as diagonal block matrix
+    LY_h = blockdiag([LY[h] for h in HARMONICS[2:end]]...)
+    u_h = vcat([u[h][:, "v"] .* exp.(1im*u[h][:, "ϕ"]) for h in HARMONICS[2:end]]...)
+    dI_h = LY_h * u_h  # TEST python, net2 ✓
+
+    # subtract the injected currents at each nonlinear node i
+    for i in m:n
+        i_inj = current_injections(nodes.ID[i], u, NE)
+        dI_1[i-m+1] -= i_inj[1]  # subtract injection at fundamental frequency...
+        # ... and at all harmonic frequencies
+        for p in 0:(K-1)
+            dI_h[p*n + i] -= i_inj[p+2]
+        end
+    end
+    vcat(dI_1, dI_h)
+end
 
 
-
+# function harmonic_mismatch
 
 nodes, lines, m, n = init_network("net2")
 LY = admittance_matrices(nodes, lines, HARMONICS)
@@ -255,6 +285,7 @@ u, err_f_t, n_iter_f = pf(LY, nodes)
 println(u[1])
 coupled = true
 NE = import_Norton_Equivalents(nodes, coupled)
+dI = current_balance(u, LY, nodes, NE)
 
 
 
