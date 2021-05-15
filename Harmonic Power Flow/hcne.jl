@@ -277,18 +277,28 @@ function current_balance(u, LY, nodes, NE)
 end
 
 
-# function harmonic_mismatch
+function harmonic_mismatch(u, LY, nodes, NE)
+# fundamental power mismatch at linear buses except slack
+    s = nodes.P[2:(m-1)]/BASE_POWER + 1im*nodes.Q[2:(m-1)]/BASE_POWER
+    u_i = u[1][2:(m-1), "v"] .* exp.(1im*u[1][2:(m-1), "ϕ"])
+    u_j = u[1][:, "v"] .* exp.(1im*u[1][:, "ϕ"])
+    LY_ij = LY[1][2:(m-1), :]
+    # power balance
+    ds = s + u_i .* conj(LY_ij*u_j)
+    di = current_balance(u, LY, nodes, NE)
+    # harmonic mismatch vector
+    vcat(ds, di)
+end
+
+
 
 nodes, lines, m, n = init_network("net2")
 LY = admittance_matrices(nodes, lines, HARMONICS)
-u, err_f_t, n_iter_f = pf(LY, nodes)
+u, err_f_t, n_iter_f = pf(LY, nodes)  # minimal deviations from python 
 println(u[1])
 coupled = true
 NE = import_Norton_Equivalents(nodes, coupled)
-dI = current_balance(u, LY, nodes, NE)
-
-
-
+f = harmonic_mismatch(u, LY, nodes, NE)
 
 
 
@@ -300,4 +310,4 @@ dI = current_balance(u, LY, nodes, NE)
 #         xϕ = vcat(xϕ, u[h].ϕ)
 #     end
 #     vcat(xv, xϕ)  # note: magnitude first
-# end
+# end   
