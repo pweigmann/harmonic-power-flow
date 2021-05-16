@@ -25,3 +25,7 @@ V1_vec = V1_1.V_m.*exp.(1im.*V1_1.V_a)
 V2_vec = V2[1].V_m.*exp.(1im.*V2[1].V_a)
 
 V1_vec == V2_vec
+
+
+# use "..." to unpack list in function calls 
+#blockdiag([LY[i] for i in keys(LY)]...)

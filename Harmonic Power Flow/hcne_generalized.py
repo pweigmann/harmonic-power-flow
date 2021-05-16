@@ -37,7 +37,7 @@ t_start = time.perf_counter()
 # global variables TODO: import from config file
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-H_MAX = 5
+H_MAX = 50
 HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
@@ -394,11 +394,11 @@ def current_balance(V, Y, buses, NE):
             # current injections of all harmonics at bus i
             I_inj = current_injections(buses.ID[i], V, NE)
             # fundamental current balance
-            dI_f -= I_inj[HARMONICS_FREQ[0]]
-            # harmonic current balance, subtract injection at appropriate index
+            dI_f[i-m] -= I_inj[HARMONICS_FREQ[0]]
+            # harmonic current balance, subtract injection at respective index
             for p in range(len(HARMONICS[1:])):
-                dI_h[p*n + m] -= I_inj[HARMONICS_FREQ[p+1]]
-
+                dI_h[p*n + i] -= I_inj[HARMONICS_FREQ[p+1]]
+            # error here? should it be dI_h[p*n + i]?
         # final current balance vector
         dI = np.concatenate([dI_f, dI_h])
     else:
@@ -440,7 +440,7 @@ def harmonic_mismatch(V, Y, buses, NE):
     """
 
     if SPARSE:
-        # fundamental power mismatch, first iteration same as in fundamental pf
+        # fundamental power mismatch
         # add all linear buses to S except slack (# = m-2)
         S = buses.loc[1:(m-1), "P"]/BASE_POWER + \
             1j*buses.loc[1:(m-1), "Q"]/BASE_POWER
@@ -513,9 +513,8 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
                 for p in range(n_blocks):   # ... and horizontally
                     for i in range(m, n):  # iterating through nonlinear buses
                         # within NE "[1]" points to Y_N
-                        # same assignment performed multiple times, not ideal
                         Y_N = NE[buses.loc[i].component][1]
-                        # subtract derived current injections at appropriate idx
+                        # subtract derived current injections at respective idx
                         IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
                                                 nl_V_norm[(HARMONICS[p], i)]
                         IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
@@ -578,9 +577,8 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
                 for p in range(n_blocks):   # ... and horizontally
                     for i in range(m, n):  # iterating through nonlinear buses
                         # within NE "[1]" points to Y_N
-                        # same assignment performed multiple times, not ideal
                         Y_N = NE[buses.loc[i].component][1]
-                        # subtract derived current injections at appropriate idx
+                        # subtract derived current injections at respective idx
                         IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
                                                 nl_V_norm[(HARMONICS[p], i)]
                         IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
@@ -642,7 +640,7 @@ def update_harmonic_voltages(V, x):
     return V
 
 
-def hpf(buses, lines, coupled, sparse, thresh_h = 1e-4, max_iter_h = 50,
+def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
         plt_convergence=False):
     """ execute fundamental power flow
 
@@ -694,8 +692,8 @@ def hpf(buses, lines, coupled, sparse, thresh_h = 1e-4, max_iter_h = 50,
     return V, err_h, n_iter_h, J
 
 
-buses, lines, m, n = init_network("net2")
-V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True, sparse=True,
+buses, lines, m, n = init_network("net1")
+V_h, err_h_final, n_iter_h, J = hpf(buses, lines, thresh_h=1e-15, coupled=True, sparse=True,
                                     plt_convergence=False)
 
 

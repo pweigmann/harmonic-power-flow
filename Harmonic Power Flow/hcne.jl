@@ -21,7 +21,7 @@ TODO
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-H_MAX = 5
+H_MAX = 51
 HARMONICS = [h for h in 1:2:H_MAX]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
@@ -163,13 +163,13 @@ function fund_jacobian(u, LY)
     dQdϕ = imag(dSdϕ[2:end, 2:end])
     dQdv = imag(dSdv[2:end, 2:end])
 
-    J_1 = vcat(hcat(dPdϕ, dPdv), 
-               hcat(dQdϕ, dQdv))
+    vcat(hcat(dPdϕ, dPdv), 
+         hcat(dQdϕ, dQdv))
 end
 
 
 function update_fund_state_vec(J, x, f)
-    x_new = x - J\f  # Newton-Raphson iteration
+    x - J\f  # Newton-Raphson iteration
 end
 
 
@@ -281,7 +281,10 @@ function harmonic_mismatch(u, LY, nodes, NE)
     ds = s + u_i .* conj(LY_ij*u_j)
     di = current_balance(u, LY, nodes, NE)
     # harmonic mismatch vector
-    vcat(ds, di)  # TEST python, net2 ✓ (small num. difference)
+    f_c = vcat(ds, di)  # TEST python, net2 ✓ (small num. difference)
+    f = vcat(real(f_c), imag(f_c))
+    err_h = maximum(abs.(f_c))
+    return f, err_h
 end
 
 
@@ -362,13 +365,67 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
 end
 
 
+function update_harmonic_state_vec(J, x, f)
+    x - J\f  # actually same as fundamental function
+end
+
+
+function update_harmonic_voltages(u, x)
+    # slice x in half to separate voltage magnitude and phase
+    xv = x[1:(length(x)÷2)]
+    xϕ = x[(length(x)÷2+1):end]
+    xϕ = xϕ .% (2*pi)  # ensure phase smaller 2pi
+    for h in HARMONICS
+        i = findall(HARMONICS .== h)[1] - 1
+        if h == 1
+            # update all nodes except slack at fundamental frequency
+            u[h].v[2:end] = xv[1:n-1]
+            u[h].ϕ[2:end] = xϕ[1:n-1]
+        else
+            # update all nodes at harmonic frequencies
+            u[h].v = xv[i*n:((i+1)*n-1)]
+            u[h].ϕ = xϕ[i*n:((i+1)*n-1)]
+        end
+    end
+    u
+end
+
+
+function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
+    LY = admittance_matrices(nodes, lines, HARMONICS)
+    @time u, err_f_t, n_iter_f = pf(LY, nodes)  # minimal deviations from python probably floating point stuff
+    NE = import_Norton_Equivalents(nodes, coupled)
+    f, err_h = harmonic_mismatch(u, LY, nodes, NE)
+    x = harmonic_state_vec(u)
+    n_iter_h = 0
+    err_h_t = Dict()
+    while err_h > thresh_h && n_iter_h < max_iter_h
+        J = build_harmonic_jacobian(u, LY, NE, coupled)
+        x = update_harmonic_state_vec(J, x, f)
+        u = update_harmonic_voltages(u, x)
+        f, err_h = harmonic_mismatch(u, LY, nodes, NE)
+        err_h_t[n_iter_h] = err_h
+        n_iter_h += 1
+    end
+
+    # getting rid of negative voltage magnitudes:
+    for h in HARMONICS
+        u[h].ϕ[u[h].v .< 0] .-= pi
+        u[h].v[u[h].v .< 0] = -u[h].v[u[h].v .< 0]
+    end
+
+    if n_iter_h < max_iter_h
+        println("Harmonic power flow converged after ", n_iter_h,
+                " iterations.")
+    elseif n_iter_h == max_iter_h
+        println("Maximum of ", n_iter_h, " iterations reached. Harmonic power flow did not converge.")
+    end
+    return u, err_h, n_iter_h
+end
+
+
 
 nodes, lines, m, n = init_network("net2")
-LY = admittance_matrices(nodes, lines, HARMONICS)
-u, err_f_t, n_iter_f = pf(LY, nodes)  # minimal deviations from python 
-println(u[1])
 coupled = true
-NE = import_Norton_Equivalents(nodes, coupled)
-f = harmonic_mismatch(u, LY, nodes, NE)
-J = build_harmonic_jacobian(u, LY, NE, coupled)
-
+@time u, err_h_final, n_iter_h = hpf(nodes, lines, coupled)
+u[1]
