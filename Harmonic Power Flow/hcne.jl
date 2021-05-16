@@ -214,8 +214,8 @@ function import_Norton_Equivalents(nodes, coupled, folder_path="")
     for device in nl_components
         NE_df = CSV.read("harmonic-power-flow\\Circuit Simulation\\" * device * "_NE.csv", DataFrame)
         # transform to Complex type, enough to strip first paranthesis for successful parse
-        values = mapcols!(col -> parse.(ComplexF64, strip.(col, ['('])), NE_df[:, 3:end])
-        NE_device = hcat(NE_df[:,1:2], values)
+        vals = mapcols!(col -> parse.(ComplexF64, strip.(col, ['('])), NE_df[:, 3:end])
+        NE_device = hcat(NE_df[:,1:2], vals)
         # filter columns for considered harmonics
         NE_device = NE_device[:, Between(begin, string(H_MAX*NET_FREQ))]
         # change to pu system and choose if coupled 
@@ -237,13 +237,7 @@ function current_injections(nodeID, u, NE)
     component = nodes[nodes.ID .== nodeID, "component"][1]
     I_N, LY_N = NE[component]
     # u as dict of dfs makes building this vector a bit complicated
-    # u_h = [df[nodeID,"v"] for (harmonic, df) in u] .* exp.(1im*[df[nodeID,"ϕ"] for (harmonic, df) in u])  # this works but sorting is unclear
-    # this might work:
-    # u_h = vcat([u[h][nodeID, "v"] .* exp.(1im*u[h][nodeID, "ϕ"]) for h in HARMONICS]...)
-    u_h = ComplexF64[]
-    for h in HARMONICS
-        push!(u_h, u[h][nodeID, "v"] * exp(1im*u[h][nodeID, "ϕ"]))
-    end
+    u_h = vcat([u[h][nodeID, "v"] .* exp.(1im*u[h][nodeID, "ϕ"]) for h in HARMONICS]...)
     # coupled: Y_N is a matrix, uncoupled: vector
     if size(LY_N)[1] > 1  # coupled case
         i_inj = vec(I_N) - vec(LY_N*u_h)  # TEST python, net2 ✓
@@ -287,7 +281,84 @@ function harmonic_mismatch(u, LY, nodes, NE)
     ds = s + u_i .* conj(LY_ij*u_j)
     di = current_balance(u, LY, nodes, NE)
     # harmonic mismatch vector
-    vcat(ds, di)
+    vcat(ds, di)  # TEST python, net2 ✓ (small num. difference)
+end
+
+
+function harmonic_state_vec(u)
+    xv = u[1].v[2:end]
+    xϕ = u[1].ϕ[2:end]
+    for h in HARMONICS[2:end]
+        xv = vcat(xv, u[h].v)
+        xϕ = vcat(xϕ, u[h].ϕ)
+    end
+    vcat(xv, xϕ)  # note: magnitude first
+end   
+
+
+function build_harmonic_jacobian(u, LY, NE, coupled)
+    u_vec = vcat([u[h].v .* exp.(1im*u[h].ϕ) for h in HARMONICS]...)
+    u_diag = spdiagm(u_vec)
+    u_norm = u_vec./abs.(u_vec)
+    u_norm_diag = spdiagm(u_norm)
+    LY_diag = blockdiag([LY[h] for h in HARMONICS]...)
+
+    # construct Jacobian sub-matrices
+    IV = LY_diag * u_norm_diag
+    IT = 1im*LY_diag*u_diag
+
+    # indices of first nonlinear bus at each harmonic
+    nl_idx_start = m:n:n*(K+1)
+    nl_idx_all = vcat([nl:(nl+n-m) for nl in nl_idx_start]...)
+    u_nl = u_vec[nl_idx_all]
+    u_nl_norm = u_nl./abs.(u_nl)
+
+    if coupled
+        # iterating through blocks vertically
+        for h in 0:K
+            # ... and horizontally
+            for p in 0:K
+                # iterating through nonlinear buses
+                for i in m:n
+                    # within NE "[2]" points to LY_N
+                    LY_N = NE[nodes.component[i]][2]
+                    # subtract derived current injections at respective idx
+                    IV[h*n+i, p*n+i] -= LY_N[h+1, p+1]*u_nl_norm[(i-m+1)+p*(n-m+1)]
+                    IT[h*n+i, p*n+i] -= 1im*LY_N[h+1, p+1]*u_nl[(i-m+1)+p*(n-m+1)]
+                end
+            end
+        end
+    else
+        # iterating through blocks diagonally (p=h)
+        for h in 0:K
+            for i in m:n
+                # LY_N is one-dimensional for uncoupled case
+                LY_N = NE[nodes.component[i]][2]
+                IV[h*n+i, p*n+i] -= LY_N[h+1]*u_nl_norm[(i-m+1)+h*(n-m+1)]
+                IT[h*n+i, p*n+i] -= 1im*LY_N[h+1]*u_nl[(i-m+1)+h*(n-m+1)]
+            end
+        end
+    end
+
+    IV = IV[m:end, 2:end]  # TEST python, net2, coupled ✓
+    IT = IT[m:end, 2:end]  # TEST python, net2, coupled ✓
+
+    LY_1 = LY[1]
+    u_1 = u[1].v .* exp.(1im*u[1].ϕ)
+    i_diag = spdiagm(LY_1*u_1)
+    u_diag = spdiagm(u_1)
+    u_diag_norm = spdiagm(u_1./abs.(u_1))
+
+    S1V1 = u_diag_norm*conj(i_diag) + u_diag*conj(LY_1*u_diag_norm)
+    S1T1 = 1im*u_diag*(conj(i_diag - LY_1*u_diag))
+
+    SV = hcat(S1V1[2:(m-1), 2:end], zeros(m-2, n*K))
+    ST = hcat(S1T1[2:(m-1), 2:end], zeros(m-2, n*K))
+
+    vcat(hcat(real(SV), real(ST)),
+         hcat(real(IV), real(IT)),
+         hcat(imag(SV), imag(ST)),
+         hcat(imag(IV), imag(IT)))
 end
 
 
@@ -299,15 +370,5 @@ println(u[1])
 coupled = true
 NE = import_Norton_Equivalents(nodes, coupled)
 f = harmonic_mismatch(u, LY, nodes, NE)
+J = build_harmonic_jacobian(u, LY, NE, coupled)
 
-
-
-# function harmonic_state_vec(u)
-#     xv = u[1].v[2:end]
-#     xϕ = u[1].ϕ[2:end]
-#     for h in HARMONICS[2:end]
-#         xv = vcat(xv, u[h].v)
-#         xϕ = vcat(xϕ, u[h].ϕ)
-#     end
-#     vcat(xv, xϕ)  # note: magnitude first
-# end   
