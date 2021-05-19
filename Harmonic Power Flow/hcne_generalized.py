@@ -37,7 +37,7 @@ t_start = time.perf_counter()
 # global variables TODO: import from config file
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-H_MAX = 50
+H_MAX = 5
 HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
@@ -215,7 +215,7 @@ def fund_mismatch(buses, V, Y1):
         mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
         # again following PyPSA conventions
         f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
-        err = f.max()
+        err = abs(f).max()
     else:
         V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
         S = (buses["P"] + 1j*buses["Q"])/BASE_POWER
@@ -455,7 +455,7 @@ def harmonic_mismatch(V, Y, buses, NE):
         # current mismatch
         dI = current_balance(V, Y, buses, NE)
         # combine both
-        f = np.concatenate([dS, dI])
+        f_c = np.concatenate([dS, dI])
     else:
         # fundamental power mismatch, first iteration same as in fundamental pf
         # add all linear buses to S except slack (# = m-2)
@@ -472,11 +472,12 @@ def harmonic_mismatch(V, Y, buses, NE):
         # current mismatch
         dI = current_balance(V, Y, buses, NE)
         # combine both
-        f = np.concatenate([dS, dI])
+        f_c = np.concatenate([dS, dI])
 
     # Convergence: err_h < THRESH_H
+    f = np.concatenate([f_c.real, f_c.imag])
     err_h = np.linalg.norm(f, np.Inf)
-    return np.concatenate([f.real, f.imag]), err_h
+    return f, err_h
 
 
 def harmonic_state_vector(V):
@@ -692,7 +693,7 @@ def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
     return V, err_h, n_iter_h, J
 
 
-buses, lines, m, n = init_network("net1")
+buses, lines, m, n = init_network("net2")
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, thresh_h=1e-15, coupled=True, sparse=True,
                                     plt_convergence=False)
 

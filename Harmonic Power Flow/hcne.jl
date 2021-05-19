@@ -12,16 +12,24 @@ u: complex voltage
 v: voltage magnitude
 ϕ: voltage phase
 
+n buses total (i = 1, ..., n)
+slack bus is first bus (i = 1)
+m-1 linear buses (i = 1, ..., m-1)
+n-m+1 nonlinear buses (i = m, ..., n)
+K harmonics considered (excluding fundamental)
+L is last harmonic considered
+
 
 TODO 
 - harmonize usage of _1 or _f to reference fundamental frequency
-- add docstrings, rework comments  
+- add docstrings, rework comments
+- find bug that prevents convergence
 """
 
 # global variables
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
-H_MAX = 51
+H_MAX = 5
 HARMONICS = [h for h in 1:2:H_MAX]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
@@ -141,21 +149,22 @@ function fund_mismatch(nodes, u, LY)
     u_1 = u[1].v .* exp.(1im*u[1].ϕ)
     s = (nodes.P + 1im*nodes.Q)/BASE_POWER
     mismatch = u_1 .* conj(LY_1*u_1) + s
+    # (different floating point?) inaccuracy compared to python 
+    # iter1: <1e-14, iter2: <1e-13, iter3: <1e-4! FIXED
     f = vcat(real(mismatch[2:end]), imag(mismatch[2:end]))
-    err = maximum(f)
+    err = maximum(abs.(f))
     f, err
 end
 
 
-function fund_jacobian(u, LY)
-    LY_1 = LY[1]
+function fund_jacobian(u, LY) 
     u_1 = u[1].v .* exp.(1im*u[1].ϕ)
-    i_diag = spdiagm(sparse(LY_1 * u_1))
+    i_diag = spdiagm(sparse(LY[1] * u_1))
     u_1_diag = spdiagm(u_1)
-    u_1_diag_norm = spdiagm(u_1./u_1)
+    u_1_diag_norm = spdiagm(u_1./abs.(u_1))
 
-    dSdϕ = 1im*u_1_diag*(i_diag - LY_1 * u_1_diag)'
-    dSdv = u_1_diag_norm * i_diag' + u_1_diag * (LY_1 * u_1_diag_norm)'
+    dSdϕ = 1im*u_1_diag*conj(i_diag - LY[1]*u_1_diag)
+    dSdv = u_1_diag_norm*conj(i_diag) + u_1_diag*conj(LY[1]*u_1_diag_norm)
 
     # divide sub-matrices into real and imag part, cut off slack
     dPdϕ = real(dSdϕ[2:end, 2:end])
@@ -197,6 +206,7 @@ function pf(LY, nodes, thresh_f = 1e-6, max_iter_f = 30,
         n_iter_f += 1
     end
 
+    println(u[1])
     if n_iter_f < max_iter_f
         println("Fundamental power flow converged after ", n_iter_f, 
               " iterations.")
@@ -278,7 +288,8 @@ function harmonic_mismatch(u, LY, nodes, NE)
     u_j = u[1][:, "v"] .* exp.(1im*u[1][:, "ϕ"])
     LY_ij = LY[1][2:(m-1), :]
     # power balance
-    ds = s + u_i .* conj(LY_ij*u_j)
+    sl = u_i .* conj(LY_ij*u_j)
+    ds = s + sl
     di = current_balance(u, LY, nodes, NE)
     # harmonic mismatch vector
     f_c = vcat(ds, di)  # TEST python, net2 ✓ (small num. difference)
