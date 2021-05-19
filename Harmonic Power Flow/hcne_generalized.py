@@ -450,7 +450,8 @@ def harmonic_mismatch(V, Y, buses, NE):
         V_j = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
         Y_ij = csr_matrix(Y.loc[idx[1, 1:(m-1), :]])
         # get rid of indices for calculation
-        dS = S.to_numpy() + (V_i*np.conjugate(Y_ij @ V_j)).to_numpy()
+        Sl = (V_i*np.conjugate(Y_ij @ V_j)).to_numpy()
+        dS = S.to_numpy() + Sl
 
         # current mismatch
         dI = current_balance(V, Y, buses, NE)
@@ -668,7 +669,7 @@ def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
     global t_start_hpf_solve, t_end_hpf_solve
     t_start_hpf_solve = time.perf_counter()
     while err_h > thresh_h and n_iter_h < max_iter_h:
-        J = build_harmonic_jacobian(V, Y, NE, coupled)
+        J = build_harmonic_jacobian(V, Y, NE, coupled)  # iter2: J[9,9] mit falschem Vorzeichen
         x = update_harmonic_state_vec(J, x, f)
         V = update_harmonic_voltages(V, x)
         (f, err_h) = harmonic_mismatch(V, Y, buses, NE)
@@ -694,7 +695,7 @@ def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
 
 
 buses, lines, m, n = init_network("net2")
-V_h, err_h_final, n_iter_h, J = hpf(buses, lines, thresh_h=1e-15, coupled=True, sparse=True,
+V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True, sparse=True,
                                     plt_convergence=False)
 
 

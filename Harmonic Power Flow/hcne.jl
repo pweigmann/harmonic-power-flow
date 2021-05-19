@@ -284,17 +284,17 @@ end
 function harmonic_mismatch(u, LY, nodes, NE)
 # fundamental power mismatch at linear buses except slack
     s = nodes.P[2:(m-1)]/BASE_POWER + 1im*nodes.Q[2:(m-1)]/BASE_POWER
-    u_i = u[1][2:(m-1), "v"] .* exp.(1im*u[1][2:(m-1), "ϕ"])
-    u_j = u[1][:, "v"] .* exp.(1im*u[1][:, "ϕ"])
+    u_i = u[1][2:(m-1), "v"].*exp.(1im*u[1][2:(m-1), "ϕ"])  # iter1: <1e-15
+    u_j = u[1][:, "v"].*exp.(1im*u[1][:, "ϕ"])
     LY_ij = LY[1][2:(m-1), :]
     # power balance
-    sl = u_i .* conj(LY_ij*u_j)
-    ds = s + sl
-    di = current_balance(u, LY, nodes, NE)
+    sl = u_i.*conj(LY_ij*u_j)  # iter1 <1e-12
+    ds = s + sl   # iter1 <1e-5 (but small number)
+    di = current_balance(u, LY, nodes, NE) # iter1 <1e-13
     # harmonic mismatch vector
-    f_c = vcat(ds, di)  # TEST python, net2 ✓ (small num. difference)
+    f_c = vcat(ds, di)  # TEST python, net2 ✓ (small num. difference: iter1: <1e-5 (but small number))
     f = vcat(real(f_c), imag(f_c))
-    err_h = maximum(abs.(f_c))
+    err_h = maximum(abs.(f))  # iter1 <1e-15, iter2 <1e-15
     return f, err_h
 end
 
@@ -318,7 +318,7 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
     LY_diag = blockdiag([LY[h] for h in HARMONICS]...)
 
     # construct Jacobian sub-matrices
-    IV = LY_diag * u_norm_diag
+    IV = LY_diag*u_norm_diag
     IT = 1im*LY_diag*u_diag
 
     # indices of first nonlinear bus at each harmonic
@@ -365,7 +365,7 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
 
     S1V1 = u_diag_norm*conj(i_diag) + u_diag*conj(LY_1*u_diag_norm)
     S1T1 = 1im*u_diag*(conj(i_diag - LY_1*u_diag))
-
+    # SV, ST iter1 <1e-15
     SV = hcat(S1V1[2:(m-1), 2:end], zeros(m-2, n*K))
     ST = hcat(S1T1[2:(m-1), 2:end], zeros(m-2, n*K))
 
@@ -412,8 +412,8 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
     err_h_t = Dict()
     while err_h > thresh_h && n_iter_h < max_iter_h
         J = build_harmonic_jacobian(u, LY, NE, coupled)
-        x = update_harmonic_state_vec(J, x, f)
-        u = update_harmonic_voltages(u, x)
+        x = update_harmonic_state_vec(J, x, f) # iter1: <1e-14
+        u = update_harmonic_voltages(u, x)  
         f, err_h = harmonic_mismatch(u, LY, nodes, NE)
         err_h_t[n_iter_h] = err_h
         n_iter_h += 1
