@@ -271,10 +271,10 @@ function current_balance(u, LY, nodes, NE)
     # subtract the injected currents at each nonlinear node i
     for i in m:n
         i_inj = current_injections(nodes.ID[i], u, NE)
-        dI_1[i-m+1] -= i_inj[1]  # subtract injection at fundamental frequency...
+        dI_1[i-m+1] += i_inj[1]  # subtract injection at fundamental frequency...
         # ... and at all harmonic frequencies
         for p in 0:(K-1)
-            dI_h[p*n + i] -= i_inj[p+2]
+            dI_h[p*n + i] += i_inj[p+2]
         end
     end
     vcat(dI_1, dI_h)
@@ -397,6 +397,9 @@ function update_harmonic_voltages(u, x)
             u[h].v = xv[i*n:((i+1)*n-1)]
             u[h].ϕ = xϕ[i*n:((i+1)*n-1)]
         end
+        # avoid negative voltage magnitudes
+        u[h].ϕ[u[h].v .< 0] .-= pi
+        u[h].v[u[h].v .< 0] = -u[h].v[u[h].v .< 0]
     end
     u
 end
@@ -439,4 +442,4 @@ end
 nodes, lines, m, n = init_network("net2")
 coupled = true
 @time u, err_h_final, n_iter_h = hpf(nodes, lines, coupled)
-u[1]
+u[5]

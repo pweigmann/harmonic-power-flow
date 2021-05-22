@@ -38,7 +38,8 @@ t_start = time.perf_counter()
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
 H_MAX = 5
-HARMONICS = [h for h in range(1, H_MAX+1, 2)]
+#HARMONICS = [h for h in range(1, H_MAX+1, 2)]
+HARMONICS = [1,5]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 
@@ -148,7 +149,10 @@ def init_network(name, from_csv=True):
         buses = init_buses_manually()
         lines = init_lines_manually()
     # find first nonlinear bus
-    m = min(buses.index[buses["type"] == "nonlinear"])
+    if len(buses.index[buses["type"] == "nonlinear"]) > 0:
+        m = min(buses.index[buses["type"] == "nonlinear"])
+    else:
+        m = len(buses)
     n = len(buses)
     return buses, lines, m, n
 
@@ -278,6 +282,10 @@ def update_fund_state_vec(J, x, f):
 def update_fund_voltages(V, x):
     V.loc[idx[1, 1:], "V_a"] = x[:int(len(x)/2)]
     V.loc[idx[1, 1:], "V_m"] = x[int(len(x)/2):]
+    # avoid negative voltage magnitudes (to be able to norm with abs())
+    V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
+    V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change signum
+    V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
 
 
@@ -394,11 +402,10 @@ def current_balance(V, Y, buses, NE):
             # current injections of all harmonics at bus i
             I_inj = current_injections(buses.ID[i], V, NE)
             # fundamental current balance
-            dI_f[i-m] -= I_inj[HARMONICS_FREQ[0]]
+            dI_f[i-m] += I_inj[HARMONICS_FREQ[0]]
             # harmonic current balance, subtract injection at respective index
             for p in range(len(HARMONICS[1:])):
-                dI_h[p*n + i] -= I_inj[HARMONICS_FREQ[p+1]]
-            # error here? should it be dI_h[p*n + i]?
+                dI_h[p*n + i] += I_inj[HARMONICS_FREQ[p+1]]
         # final current balance vector
         dI = np.concatenate([dI_f, dI_h])
     else:
@@ -492,7 +499,7 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
         # some arrays to simplify calculation
         V_vec = V.V_m*np.exp(1j*V.V_a)
         V_diag = diags(np.array(V_vec))
-        V_norm = V_vec/V.V_m
+        V_norm = V_vec/abs(V_vec)
         V_norm_diag = diags(np.array(V_norm))
         Y_diag = block_diag([np.array(Y.loc[i]) for i in HARMONICS], format="csr")
 
@@ -510,25 +517,27 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
         nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
         nl_V = V_vec.iloc[nl_idx_all]
         nl_V_norm = nl_V/abs(nl_V)
-        if coupled:
-            for h in range(n_blocks):  # iterating through blocks vertically
-                for p in range(n_blocks):   # ... and horizontally
-                    for i in range(m, n):  # iterating through nonlinear buses
-                        # within NE "[1]" points to Y_N
-                        Y_N = NE[buses.loc[i].component][1]
-                        # subtract derived current injections at respective idx
-                        IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
-                                                nl_V_norm[(HARMONICS[p], i)]
-                        IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
-                                                nl_V[(HARMONICS[p], i)]
-        else:
-            for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
-                for i in range(m, n):  # iterating through nonlinear buses
-                    # within NE "[1]" points to Y_N
-                    Y_N = NE[buses.loc[i].component][1]
-                    # Y_N is one-dimensional for uncoupled case
-                    IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
-                    IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
+        # Fuchs didnt derive the current injections, so maybe I shouldn't either
+        # advantage - results don't diverge...
+        # if coupled:
+        #     for h in range(n_blocks):  # iterating through blocks vertically
+        #         for p in range(n_blocks):   # ... and horizontally
+        #             for i in range(m, n):  # iterating through nonlinear buses
+        #                 # within NE "[1]" points to Y_N
+        #                 Y_N = NE[buses.loc[i].component][1]
+        #                 # subtract derived current injections at respective idx
+        #                 IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
+        #                                         nl_V_norm[(HARMONICS[p], i)]
+        #                 IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
+        #                                         nl_V[(HARMONICS[p], i)]
+        # else:
+        #     for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
+        #         for i in range(m, n):  # iterating through nonlinear buses
+        #             # within NE "[1]" points to Y_N
+        #             Y_N = NE[buses.loc[i].component][1]
+        #             # Y_N is one-dimensional for uncoupled case
+        #             IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
+        #             IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
         # crop
         IV = IV[m:, 1:]
         IT = IT[m:, 1:]
@@ -635,8 +644,9 @@ def update_harmonic_voltages(V, x):
 
     # add pi to negative voltage magnitudes
     # -> somehow this doesn't work, why? Instead only performed once in the end
-    # V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
-    # V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
+    # -> FIXME: Because something else is wrong... sign mistake somewhere?
+    V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
+    V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
 
     V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
