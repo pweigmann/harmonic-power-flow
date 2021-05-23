@@ -444,8 +444,7 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
     nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
     nl_V = V_vec.iloc[nl_idx_all]
     nl_V_norm = nl_V/A2P(nl_V)[0]
-    # Fuchs didnt derive the current injections, so maybe I shouldn't either
-    # advantage - results don't diverge...
+    # Fuchs didn't derive the current injections, so maybe I shouldn't either?
     if coupled:
         for h in range(n_blocks):  # iterating through blocks vertically
             for p in range(n_blocks):   # ... and horizontally
@@ -502,11 +501,12 @@ def update_harmonic_voltages(V, x):
     V.iloc[idx[1:], 0] = x[:int(len(x)/2)]
     V.iloc[idx[1:], 1] = x[int(len(x)/2):]
 
+    # avoid negative voltage magnitudes
     # add pi to negative voltage magnitudes
-    # -> somehow this doesn't work, why? Instead only performed once in the end
-    # -> FIXME: Because something else is wrong... sign mistake somewhere?
-    #V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
-    #V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
+    # V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
+    # V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
+    # -> this doesn't work, why? Instead only performed once in the end
+    # -> normalization will give false negative result if doing this
 
     V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
@@ -563,7 +563,7 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
     return V, err_h, n_iter_h, J
 
 
-buses, lines, m, n = init_network("net2")
+buses, lines, m, n = init_network("net1")
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
                                     plt_convergence=False)
 
