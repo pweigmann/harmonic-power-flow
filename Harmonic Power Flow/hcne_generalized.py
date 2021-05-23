@@ -213,69 +213,40 @@ def init_fund_state_vec(V):
 
 
 def fund_mismatch(buses, V, Y1):
-    if SPARSE:
-        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        S = (buses["P"] + 1j*buses["Q"])/BASE_POWER
-        mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
-        # again following PyPSA conventions
-        f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
-        err = abs(f).max()
-    else:
-        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        S = (buses["P"] + 1j*buses["Q"])/BASE_POWER
-        mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
-        # again following PyPSA conventions
-        f = np.r_[mismatch.real[1:], mismatch.imag[1:]]
-        err = np.linalg.norm(f, np.Inf)
+    V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    S = (buses["P"] + 1j*buses["Q"])/BASE_POWER
+    mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
+    # again following PyPSA conventions
+    f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
+    err = abs(f).max()
     return f, err
 
 
 def build_jacobian(V, Y1):
     """ fundamental Jacobian containing partial derivatives of S wrt V """
-    if SPARSE:
-        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        I_diag = diags(Y1 @ V_vec)
-        V_diag = diags(V_vec)
-        V_diag_norm = diags(V_vec/abs(V_vec))
+    V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    I_diag = diags(Y1 @ V_vec)
+    V_diag = diags(V_vec)
+    V_diag_norm = diags(V_vec/abs(V_vec))
 
-        dSdt = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
-        dSdV = V_diag_norm @ np.conj(I_diag) + \
-            V_diag @ np.conj(Y1 @ V_diag_norm)
+    dSdt = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
+    dSdV = V_diag_norm @ np.conj(I_diag) + \
+        V_diag @ np.conj(Y1 @ V_diag_norm)
 
-        # divide sub-matrices into real and imag part, cut off slack, build J
-        dPdt = csr_matrix(dSdt[1:, 1:].real)
-        dPdV = csr_matrix(dSdV[1:, 1:].real)
-        dQdt = csr_matrix(dSdt[1:, 1:].imag)
-        dQdV = csr_matrix(dSdV[1:, 1:].imag)
-        J = vstack([hstack([dPdt, dPdV]),
-                    hstack([dQdt, dQdV])], format="csr")
-    else:
-        V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        I_diag = np.diag(Y1.dot(V_vec))
-        V_diag = np.diag(V_vec)
-        V_diag_norm = np.diag(V_vec/abs(V_vec))
-
-        dSdt = 1j*V_diag.dot(np.conj(I_diag - Y1.dot(V_diag)))
-        dSdV = V_diag_norm.dot(np.conj(I_diag)) \
-            + V_diag.dot(np.conj(Y1.dot(V_diag_norm)))
-
-        # divide sub-matrices into real and imag part, cut off slack, build J
-        dPdt = dSdt[1:, 1:].real
-        dPdV = dSdV[1:, 1:].real
-        dQdt = dSdt[1:, 1:].imag
-        dQdV = dSdV[1:, 1:].imag
-        J = np.vstack([np.hstack([dPdt, dPdV]),
-                       np.hstack([dQdt, dQdV])])
+    # divide sub-matrices into real and imag part, cut off slack, build J
+    dPdt = csr_matrix(dSdt[1:, 1:].real)
+    dPdV = csr_matrix(dSdV[1:, 1:].real)
+    dQdt = csr_matrix(dSdt[1:, 1:].imag)
+    dQdV = csr_matrix(dSdV[1:, 1:].imag)
+    J = vstack([hstack([dPdt, dPdV]),
+                hstack([dQdt, dQdV])], format="csr")
     return J
 
 
 def update_fund_state_vec(J, x, f):
     """ perform Newton-Raphson iteration """
     # TODO: try other solvers
-    if SPARSE:
-        x_new = x - spsolve(J, f.T)
-    else:
-        x_new = x - solve(J, f)
+    x_new = x - spsolve(J, f.T)
     return x_new
 
 
@@ -551,7 +522,7 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
              err_t: error over time
              n_iter_f: number of iterations performed
     """
-    global t_end_init, t_end_pf, t_end_NE_import, SPARSE
+    global t_end_init, t_end_pf, t_end_NE_import
 
     Y = build_admittance_matrices(buses, lines, HARMONICS)
     t_end_init = time.perf_counter()
