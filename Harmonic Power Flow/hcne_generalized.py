@@ -508,7 +508,6 @@ def update_harmonic_voltages(V, x):
     # -> this doesn't work, why? Instead only performed once in the end
     # -> normalization will give false negative result if doing this
 
-    V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
 
 
@@ -548,7 +547,8 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
 
     # getting rid of negative voltage magnitudes:
     # add pi to negative voltage magnitudes
-    V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
+    V.loc[V["V_m"] < 0, "V_a"] += np.pi
+    V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change signum
 
     # plot convergence behaviour
@@ -563,7 +563,7 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
     return V, err_h, n_iter_h, J
 
 
-buses, lines, m, n = init_network("net1")
+buses, lines, m, n = init_network("net2")
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
                                     plt_convergence=False)
 
