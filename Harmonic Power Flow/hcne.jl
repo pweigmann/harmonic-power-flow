@@ -150,7 +150,6 @@ function fund_mismatch(nodes, u, LY)
     s = (nodes.P + 1im*nodes.Q)/BASE_POWER
     mismatch = u_1 .* conj(LY_1*u_1) + s
     # (different floating point?) inaccuracy compared to python 
-    # iter1: <1e-14, iter2: <1e-13, iter3: <1e-4! FIXED
     f = vcat(real(mismatch[2:end]), imag(mismatch[2:end]))
     err = maximum(abs.(f))
     f, err
@@ -213,7 +212,7 @@ function pf(LY, nodes, thresh_f = 1e-6, max_iter_f = 30,
     elseif n_iter_f == max_iter_f
         println("Maximum of ", n_iter_f, " iterations reached.")
     end
-    u, err_f_t, n_iter_f
+    u
 end
 
 
@@ -250,9 +249,9 @@ function current_injections(nodeID, u, NE)
     u_h = vcat([u[h][nodeID, "v"] .* exp.(1im*u[h][nodeID, "ϕ"]) for h in HARMONICS]...)
     # coupled: Y_N is a matrix, uncoupled: vector
     if size(LY_N)[1] > 1  # coupled case
-        i_inj = vec(I_N) - vec(LY_N*u_h)  # TEST python, net2 ✓
+        i_inj = vec(I_N) - vec(LY_N*u_h)
     else  # uncoupled case
-        i_inj = vec(I_N) - spdiagm(vec(LY_N))*u_h # TEST python, net2 ✓
+        i_inj = vec(I_N) - spdiagm(vec(LY_N))*u_h
     end
     i_inj
 end
@@ -262,16 +261,16 @@ function current_balance(u, LY, nodes, NE)
     LY_1_nl = LY[1][m:end,:]
     u_1 = u[1].v .* exp.(1im*u[1].ϕ)
     # fundamental line currents at nonlinear nodes
-    dI_1 = LY_1_nl * u_1  # TEST python, net2 ✓
+    dI_1 = LY_1_nl * u_1
     # harmonic admittance matrices as diagonal block matrix
     LY_h = blockdiag([LY[h] for h in HARMONICS[2:end]]...)
     u_h = vcat([u[h][:, "v"] .* exp.(1im*u[h][:, "ϕ"]) for h in HARMONICS[2:end]]...)
-    dI_h = LY_h * u_h  # TEST python, net2 ✓
+    dI_h = LY_h * u_h 
 
     # subtract the injected currents at each nonlinear node i
     for i in m:n
         i_inj = current_injections(nodes.ID[i], u, NE)
-        dI_1[i-m+1] += i_inj[1]  # subtract injection at fundamental frequency...
+        dI_1[i-m+1] += i_inj[1]  # add injections at fundamental frequency...
         # ... and at all harmonic frequencies
         for p in 0:(K-1)
             dI_h[p*n + i] += i_inj[p+2]
@@ -282,19 +281,19 @@ end
 
 
 function harmonic_mismatch(u, LY, nodes, NE)
-# fundamental power mismatch at linear buses except slack
+    # fundamental power mismatch at linear buses except slack
     s = nodes.P[2:(m-1)]/BASE_POWER + 1im*nodes.Q[2:(m-1)]/BASE_POWER
-    u_i = u[1][2:(m-1), "v"].*exp.(1im*u[1][2:(m-1), "ϕ"])  # iter1: <1e-15
+    u_i = u[1][2:(m-1), "v"].*exp.(1im*u[1][2:(m-1), "ϕ"])
     u_j = u[1][:, "v"].*exp.(1im*u[1][:, "ϕ"])
     LY_ij = LY[1][2:(m-1), :]
     # power balance
-    sl = u_i.*conj(LY_ij*u_j)  # iter1 <1e-12
-    ds = s + sl   # iter1 <1e-5 (but small number)
-    di = current_balance(u, LY, nodes, NE) # iter1 <1e-13
+    sl = u_i.*conj(LY_ij*u_j)  
+    ds = s + sl  
+    di = current_balance(u, LY, nodes, NE) 
     # harmonic mismatch vector
-    f_c = vcat(ds, di)  # TEST python, net2 ✓ (small num. difference: iter1: <1e-5 (but small number))
+    f_c = vcat(ds, di) 
     f = vcat(real(f_c), imag(f_c))
-    err_h = maximum(abs.(f))  # iter1 <1e-15, iter2 <1e-15
+    err_h = maximum(abs.(f))  
     return f, err_h
 end
 
@@ -312,8 +311,9 @@ end
 
 function build_harmonic_jacobian(u, LY, NE, coupled)
     u_vec = vcat([u[h].v .* exp.(1im*u[h].ϕ) for h in HARMONICS]...)
+    v_vec = vcat([u[h].v for h in HARMONICS]...)
     u_diag = spdiagm(u_vec)
-    u_norm = u_vec./abs.(u_vec)
+    u_norm = u_vec./v_vec
     u_norm_diag = spdiagm(u_norm)
     LY_diag = blockdiag([LY[h] for h in HARMONICS]...)
 
@@ -325,7 +325,8 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
     nl_idx_start = m:n:n*(K+1)
     nl_idx_all = vcat([nl:(nl+n-m) for nl in nl_idx_start]...)
     u_nl = u_vec[nl_idx_all]
-    u_nl_norm = u_nl./abs.(u_nl)
+    v_nl = v_vec[nl_idx_all]
+    u_nl_norm = u_nl./v_nl
 
     if coupled
         # iterating through blocks vertically
@@ -354,8 +355,8 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
         end
     end
 
-    IV = IV[m:end, 2:end]  # TEST python, net2, coupled ✓
-    IT = IT[m:end, 2:end]  # TEST python, net2, coupled ✓
+    IV = IV[m:end, 2:end]  
+    IT = IT[m:end, 2:end]  
 
     LY_1 = LY[1]
     u_1 = u[1].v .* exp.(1im*u[1].ϕ)
@@ -365,10 +366,11 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
 
     S1V1 = u_diag_norm*conj(i_diag) + u_diag*conj(LY_1*u_diag_norm)
     S1T1 = 1im*u_diag*(conj(i_diag - LY_1*u_diag))
-    # SV, ST iter1 <1e-15
+
     SV = hcat(S1V1[2:(m-1), 2:end], zeros(m-2, n*K))
     ST = hcat(S1T1[2:(m-1), 2:end], zeros(m-2, n*K))
 
+    # combine all sub-matrices and return complete Jacobian
     vcat(hcat(real(SV), real(ST)),
          hcat(real(IV), real(IT)),
          hcat(imag(SV), imag(ST)),
@@ -397,9 +399,6 @@ function update_harmonic_voltages(u, x)
             u[h].v = xv[i*n:((i+1)*n-1)]
             u[h].ϕ = xϕ[i*n:((i+1)*n-1)]
         end
-        # avoid negative voltage magnitudes
-        u[h].ϕ[u[h].v .< 0] .-= pi
-        u[h].v[u[h].v .< 0] = -u[h].v[u[h].v .< 0]
     end
     u
 end
@@ -407,7 +406,7 @@ end
 
 function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
     LY = admittance_matrices(nodes, lines, HARMONICS)
-    @time u, err_f_t, n_iter_f = pf(LY, nodes)  # minimal deviations from python probably floating point stuff
+    @time u = pf(LY, nodes)
     NE = import_Norton_Equivalents(nodes, coupled)
     f, err_h = harmonic_mismatch(u, LY, nodes, NE)
     x = harmonic_state_vec(u)
@@ -415,7 +414,7 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
     err_h_t = Dict()
     while err_h > thresh_h && n_iter_h < max_iter_h
         J = build_harmonic_jacobian(u, LY, NE, coupled)
-        x = update_harmonic_state_vec(J, x, f) # iter1: <1e-14
+        x = update_harmonic_state_vec(J, x, f)
         u = update_harmonic_voltages(u, x)  
         f, err_h = harmonic_mismatch(u, LY, nodes, NE)
         err_h_t[n_iter_h] = err_h
@@ -424,7 +423,8 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
 
     # getting rid of negative voltage magnitudes:
     for h in HARMONICS
-        u[h].ϕ[u[h].v .< 0] .-= pi
+        u[h].ϕ[u[h].v .< 0] .+= pi
+        u[h].ϕ .= u[h].ϕ .% (2*pi)
         u[h].v[u[h].v .< 0] = -u[h].v[u[h].v .< 0]
     end
 
@@ -438,8 +438,7 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
 end
 
 
-
-nodes, lines, m, n = init_network("net2")
+nodes, lines, m, n = init_network("net1")
 coupled = true
 @time u, err_h_final, n_iter_h = hpf(nodes, lines, coupled)
 u[5]
