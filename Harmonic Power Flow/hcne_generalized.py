@@ -38,8 +38,8 @@ t_start = time.perf_counter()
 BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
 BASE_VOLTAGE = 230
 H_MAX = 5
-#HARMONICS = [h for h in range(1, H_MAX+1, 2)]
-HARMONICS = [1,5]
+HARMONICS = [h for h in range(1, H_MAX+1, 2)]
+#HARMONICS = [1, 5]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 
@@ -384,55 +384,30 @@ def current_balance(V, Y, buses, NE):
     Harmonic current balance for all buses and all harmonics (n*K)
     :return: vector of n-m+1 + nK complex current balances (as np.array)
     """
-    if SPARSE:
-        # fundamental admittance for nonlinear buses
-        Y_f = csr_matrix(Y.loc[1, m:, :])
-        # fundamental voltage for all buses
-        V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        # fundamental line currents at nonlinear buses
-        dI_f = Y_f @ V_f
 
-        # construct V and Y from list of sub-arrays except fund
-        Y_h = block_diag(([np.array(Y.loc[i]) for i in HARMONICS[1:]]), format="csr")
-        V_h = V.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
-        # harmonic line currents at all buses
-        dI_h = Y_h @ V_h
+    # fundamental admittance for nonlinear buses
+    Y_f = csr_matrix(Y.loc[1, m:, :])
+    # fundamental voltage for all buses
+    V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    # fundamental line currents at nonlinear buses
+    dI_f = Y_f @ V_f
 
-        for i in range(m, n):
-            # current injections of all harmonics at bus i
-            I_inj = current_injections(buses.ID[i], V, NE)
-            # fundamental current balance
-            dI_f[i-m] += I_inj[HARMONICS_FREQ[0]]
-            # harmonic current balance, subtract injection at respective index
-            for p in range(len(HARMONICS[1:])):
-                dI_h[p*n + i] += I_inj[HARMONICS_FREQ[p+1]]
-        # final current balance vector
-        dI = np.concatenate([dI_f, dI_h])
-    else:
-        # fundamental admittance for nonlinear buses
-        Y_f = np.array(Y.loc[1, m:, :])
-        # fundamental voltage for all buses
-        V_f = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        # fundamental line currents at nonlinear buses
-        dI_f = Y_f @ V_f
+    # construct V and Y from list of sub-arrays except fund
+    Y_h = block_diag(([np.array(Y.loc[i]) for i in HARMONICS[1:]]), format="csr")
+    V_h = V.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
+    # harmonic line currents at all buses
+    dI_h = Y_h @ V_h
 
-        # construct V and Y from list of sub-arrays except fund
-        Y_h = block_diag_dense(*[Y.loc[i] for i in HARMONICS[1:]])
-        V_h = V.loc[HARMONICS[1:], "V_m"]*np.exp(1j*V.loc[HARMONICS[1:], "V_a"])
-        # harmonic line currents at all buses
-        dI_h = Y_h.dot(V_h)
-
-        for i in range(m, n):
-            # current injections of all harmonics at bus i
-            I_inj = current_injections(buses.ID[i], V, NE)
-            # fundamental current balance
-            dI_f -= I_inj[HARMONICS_FREQ[0]]
-            # harmonic current balance, subtract injection at appropriate index
-            for p in range(len(HARMONICS[1:])):
-                dI_h[p*n + m] -= I_inj[HARMONICS_FREQ[p+1]]
-
-        # final current balance vector
-        dI = np.concatenate([dI_f, dI_h])
+    for i in range(m, n):
+        # current injections of all harmonics at bus i
+        I_inj = current_injections(buses.ID[i], V, NE)
+        # fundamental current balance
+        dI_f[i-m] += I_inj[HARMONICS_FREQ[0]]
+        # harmonic current balance, subtract injection at respective index
+        for p in range(len(HARMONICS[1:])):
+            dI_h[p*n + i] += I_inj[HARMONICS_FREQ[p+1]]
+    # final current balance vector
+    dI = np.concatenate([dI_f, dI_h])
     return dI
 
 
@@ -446,41 +421,23 @@ def harmonic_mismatch(V, Y, buses, NE):
              total length: 2(m-2 + n-m+1+nK) = 2(n(K+1)-1)
     """
 
-    if SPARSE:
-        # fundamental power mismatch
-        # add all linear buses to S except slack (# = m-2)
-        S = buses.loc[1:(m-1), "P"]/BASE_POWER + \
-            1j*buses.loc[1:(m-1), "Q"]/BASE_POWER
-        # prepare V and Y as needed
-        V_i = V.loc[idx[1, 1:(m-1)], "V_m"] * \
-            np.exp(1j*V.loc[idx[1, 1:(m-1)], "V_a"])
-        V_j = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
-        Y_ij = csr_matrix(Y.loc[idx[1, 1:(m-1), :]])
-        # get rid of indices for calculation
-        Sl = (V_i*np.conjugate(Y_ij @ V_j)).to_numpy()
-        dS = S.to_numpy() + Sl
+    # fundamental power mismatch
+    # add all linear buses to S except slack (# = m-2)
+    S = buses.loc[1:(m-1), "P"]/BASE_POWER + \
+        1j*buses.loc[1:(m-1), "Q"]/BASE_POWER
+    # prepare V and Y as needed
+    V_i = V.loc[idx[1, 1:(m-1)], "V_m"] * \
+        np.exp(1j*V.loc[idx[1, 1:(m-1)], "V_a"])
+    V_j = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
+    Y_ij = csr_matrix(Y.loc[idx[1, 1:(m-1), :]])
+    # get rid of indices for calculation
+    Sl = (V_i*np.conjugate(Y_ij @ V_j)).to_numpy()
+    dS = S.to_numpy() + Sl
 
-        # current mismatch
-        dI = current_balance(V, Y, buses, NE)
-        # combine both
-        f_c = np.concatenate([dS, dI])
-    else:
-        # fundamental power mismatch, first iteration same as in fundamental pf
-        # add all linear buses to S except slack (# = m-2)
-        S = buses.loc[1:(m-1), "P"]/BASE_POWER + \
-            1j*buses.loc[1:(m-1), "Q"]/BASE_POWER
-        # prepare V and Y as needed
-        V_i = V.loc[idx[1, 1:(m-1)], "V_m"] * \
-            np.exp(1j*V.loc[idx[1, 1:(m-1)], "V_a"])
-        V_j = V.loc[1, "V_m"] * np.exp(1j*V.loc[1, "V_a"])
-        Y_ij = Y.loc[idx[1, 1:(m-1), :]].to_numpy()
-        # get rid of indices for calculation
-        dS = S.to_numpy() + (V_i*np.conjugate(Y_ij.dot(V_j))).to_numpy()
-
-        # current mismatch
-        dI = current_balance(V, Y, buses, NE)
-        # combine both
-        f_c = np.concatenate([dS, dI])
+    # current mismatch
+    dI = current_balance(V, Y, buses, NE)
+    # combine both
+    f_c = np.concatenate([dS, dI])
 
     # Convergence: err_h < THRESH_H
     f = np.concatenate([f_c.real, f_c.imag])
@@ -495,145 +452,77 @@ def harmonic_state_vector(V):
 
 
 def build_harmonic_jacobian(V, Y, NE, coupled):
-    if SPARSE:
-        # some arrays to simplify calculation
-        V_vec = V.V_m*np.exp(1j*V.V_a)
-        V_diag = diags(np.array(V_vec))
-        V_norm = V_vec/abs(V_vec)
-        V_norm_diag = diags(np.array(V_norm))
-        Y_diag = block_diag([np.array(Y.loc[i]) for i in HARMONICS], format="csr")
+    # some arrays to simplify calculation
+    V_vec = V.V_m*np.exp(1j*V.V_a)
+    V_diag = diags(np.array(V_vec))
+    V_norm = V_vec/V.V_m
+    V_norm_diag = diags(np.array(V_norm))
+    Y_diag = block_diag([np.array(Y.loc[i]) for i in HARMONICS], format="csr")
 
-        # IV and IT, convert to lil_matrix for more efficient element addition
-        IV = (Y_diag @ V_norm_diag).tolil()  # diagonal blocks for p = h
-        IT = (1j*Y_diag @ V_diag).tolil()
+    # IV and IT, convert to lil_matrix for more efficient element addition
+    IV = (Y_diag @ V_norm_diag).tolil()  # diagonal blocks for p = h
+    IT = (1j*Y_diag @ V_diag).tolil()
 
-        # iterate through IV and subtract derived current injections
-        # number of harmonics (without fundamental)
-        K = len(HARMONICS) - 1
-        n_blocks = K+1
-        # indices of first nonlinear bus at each harmonic
-        nl_idx_start = list(range(m, n*(K+1), n))
-        # indices of all nonlinear buses
-        nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
-        nl_V = V_vec.iloc[nl_idx_all]
-        nl_V_norm = nl_V/abs(nl_V)
-        # Fuchs didnt derive the current injections, so maybe I shouldn't either
-        # advantage - results don't diverge...
-        # if coupled:
-        #     for h in range(n_blocks):  # iterating through blocks vertically
-        #         for p in range(n_blocks):   # ... and horizontally
-        #             for i in range(m, n):  # iterating through nonlinear buses
-        #                 # within NE "[1]" points to Y_N
-        #                 Y_N = NE[buses.loc[i].component][1]
-        #                 # subtract derived current injections at respective idx
-        #                 IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
-        #                                         nl_V_norm[(HARMONICS[p], i)]
-        #                 IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
-        #                                         nl_V[(HARMONICS[p], i)]
-        # else:
-        #     for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
-        #         for i in range(m, n):  # iterating through nonlinear buses
-        #             # within NE "[1]" points to Y_N
-        #             Y_N = NE[buses.loc[i].component][1]
-        #             # Y_N is one-dimensional for uncoupled case
-        #             IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
-        #             IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
-        # crop
-        IV = IV[m:, 1:]
-        IT = IT[m:, 1:]
-
-        # SV and ST (from fundamental)
-        # TODO: Harmonize sorting with fundamental
-        Y1 = csr_matrix(Y.loc[1])
-        V_vec_1 = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        I_diag = diags(Y1 @ V_vec_1)
-        V_diag = diags(V_vec_1)
-        V_diag_norm = diags(V_vec_1/abs(V_vec_1))
-
-        S1V1 = V_diag_norm @ np.conj(I_diag) \
-            + V_diag @ np.conj(Y1 @ V_diag_norm)
-        S1T1 = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
-
-        SV = hstack([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
-        ST = hstack([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
-
-        J = vstack([hstack([SV.real, ST.real]),
-                    hstack([IV.real, IT.real]),
-                    hstack([SV.imag, ST.imag]),
-                    hstack([IV.imag, IT.imag])], format="csr")
-    else:
-        # some arrays to simplify calculation
-        V_vec = V.V_m*np.exp(1j*V.V_a)
-        V_diag = np.diag(V_vec)
-        V_norm = V_vec/V.V_m
-        V_norm_diag = np.diag(V_norm)
-        Y_diag = block_diag_dense(*[Y.loc[i] for i in HARMONICS])
-
-        # IV and IT (no difference between coupled and uncoupled method)
-        IV = Y_diag.dot(V_norm_diag)  # diagonal blocks for p = h
-        IT = 1j*Y_diag.dot(V_diag)
-
-        # iterate through IV and subtract derived current injections
-        # number of harmonics (without fundamental)
-        K = len(HARMONICS) - 1
-        n_blocks = K+1
-        # indices of first nonlinear bus at each harmonic
-        nl_idx_start = list(range(m, n*(K+1), n))
-        # indices of all nonlinear buses
-        nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
-        nl_V = V_vec.iloc[nl_idx_all]
-        nl_V_norm = nl_V/abs(nl_V)
-        if coupled:
-            for h in range(n_blocks):  # iterating through blocks vertically
-                for p in range(n_blocks):   # ... and horizontally
-                    for i in range(m, n):  # iterating through nonlinear buses
-                        # within NE "[1]" points to Y_N
-                        Y_N = NE[buses.loc[i].component][1]
-                        # subtract derived current injections at respective idx
-                        IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
-                                                nl_V_norm[(HARMONICS[p], i)]
-                        IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
-                                                nl_V[(HARMONICS[p], i)]
-        else:
-            for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
+    # iterate through IV and subtract derived current injections
+    # number of harmonics (without fundamental)
+    K = len(HARMONICS) - 1
+    n_blocks = K+1
+    # indices of first nonlinear bus at each harmonic
+    nl_idx_start = list(range(m, n*(K+1), n))
+    # indices of all nonlinear buses
+    nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
+    nl_V = V_vec.iloc[nl_idx_all]
+    nl_V_norm = nl_V/A2P(nl_V)[0]
+    # Fuchs didnt derive the current injections, so maybe I shouldn't either
+    # advantage - results don't diverge...
+    if coupled:
+        for h in range(n_blocks):  # iterating through blocks vertically
+            for p in range(n_blocks):   # ... and horizontally
                 for i in range(m, n):  # iterating through nonlinear buses
                     # within NE "[1]" points to Y_N
                     Y_N = NE[buses.loc[i].component][1]
-                    # Y_N is one-dimensional for uncoupled case
-                    IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
-                    IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
-        # crop
-        IV = IV[m:, 1:]
-        IT = IT[m:, 1:]
+                    # subtract derived current injections at respective idx
+                    IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
+                                            nl_V_norm[(HARMONICS[p], i)]
+                    IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
+                                            nl_V[(HARMONICS[p], i)]
+    else:
+        for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
+            for i in range(m, n):  # iterating through nonlinear buses
+                # within NE "[1]" points to Y_N
+                Y_N = NE[buses.loc[i].component][1]
+                # Y_N is one-dimensional for uncoupled case
+                IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
+                IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
+    # crop
+    IV = IV[m:, 1:]
+    IT = IT[m:, 1:]
 
-        # SV and ST (from fundamental)
-        # TODO: Harmonize sorting with fundamental
-        V_vec_1 = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-        I_diag = np.diag(Y.loc[1].to_numpy().dot(V_vec_1))
-        V_diag = np.diag(V_vec_1)
-        V_diag_norm = np.diag(V_vec_1/abs(V_vec_1))
+    # SV and ST (from fundamental)
+    # TODO: Harmonize sorting with fundamental
+    Y1 = csr_matrix(Y.loc[1])
+    V_vec_1 = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
+    I_diag = diags(Y1 @ V_vec_1)
+    V_diag = diags(V_vec_1)
+    V_diag_norm = diags(V_vec_1/V.loc[1, "V_m"])
 
-        S1V1 = V_diag_norm.dot(np.conj(I_diag)) \
-            + V_diag.dot(np.conj(Y.loc[1].to_numpy().dot(V_diag_norm)))
-        S1T1 = 1j*V_diag.dot(np.conj(I_diag - Y.loc[1].to_numpy().dot(V_diag)))
+    S1V1 = V_diag_norm @ np.conj(I_diag) \
+        + V_diag @ np.conj(Y1 @ V_diag_norm)
+    S1T1 = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
 
-        SV = np.block([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
-        ST = np.block([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
+    SV = hstack([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
+    ST = hstack([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
 
-        J = np.block([[SV.real, ST.real],
-                      [IV.real, IT.real],
-                      [SV.imag, ST.imag],
-                      [IV.imag, IT.imag]])
-        # check if sparse returns same J as dense
+    J = vstack([hstack([SV.real, ST.real]),
+                hstack([IV.real, IT.real]),
+                hstack([SV.imag, ST.imag]),
+                hstack([IV.imag, IT.imag])], format="csr")
     return J
 
 
 def update_harmonic_state_vec(J, x, f):
     """ perform Newton-Raphson iteration """
-    if SPARSE:
-        x_new = x - spsolve(J, f)
-    else:
-        x_new = x - solve(J, f)
+    x_new = x - spsolve(J, f)
     return x_new
 
 
@@ -645,14 +534,14 @@ def update_harmonic_voltages(V, x):
     # add pi to negative voltage magnitudes
     # -> somehow this doesn't work, why? Instead only performed once in the end
     # -> FIXME: Because something else is wrong... sign mistake somewhere?
-    V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
-    V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
+    #V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
+    #V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
 
     V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
 
 
-def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
+def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
         plt_convergence=False):
     """ execute fundamental power flow
 
@@ -664,7 +553,6 @@ def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
     """
     global t_end_init, t_end_pf, t_end_NE_import, SPARSE
 
-    SPARSE = sparse  # remove after verifying sparse calculations
     Y = build_admittance_matrices(buses, lines, HARMONICS)
     t_end_init = time.perf_counter()
     V, err1_t, n_converged = pf(Y, buses)
@@ -705,7 +593,7 @@ def hpf(buses, lines, coupled, sparse, thresh_h=1e-4, max_iter_h=50,
 
 
 buses, lines, m, n = init_network("net2")
-V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True, sparse=True,
+V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
                                     plt_convergence=False)
 
 

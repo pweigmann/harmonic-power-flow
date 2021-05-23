@@ -3,4 +3,3 @@ ID;type;component;S;X_shunt;P;Q
 2;PQ;lin_load_1;0;0;100;100
 3;PQ;lin_load_2;0;0;100;100
 4;nonlinear;smps;0;0;150;100
-5;nonlinear;smps;0;0;250;100
