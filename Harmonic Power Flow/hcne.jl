@@ -380,6 +380,7 @@ end
 
 function update_harmonic_state_vec(J, x, f)
     x - J\f  # actually same as fundamental function
+    # -> try using NLsolve.jl
 end
 
 
@@ -438,7 +439,17 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
 end
 
 
-nodes, lines, m, n = init_network("net1")
+function get_THD(u)
+    THD = DataFrame(THD_F = zeros(size(nodes)[1]), 
+                    THD_R = zeros(size(nodes)[1]))
+    for ID in nodes.ID
+        THD[ID, "THD_F"] = sqrt(sum([u[h].v[ID]^2 for h in HARMONICS[2:end]]))./u[1].v[ID]
+        THD[ID, "THD_R"] = sqrt(sum([u[h].v[ID]^2 for h in HARMONICS[2:end]]))./sqrt(sum([u[h].v[ID]^2 for h in HARMONICS]))
+    end
+end
+
+
+nodes, lines, m, n = init_network("net2")
 coupled = true
 @time u, err_h_final, n_iter_h = hpf(nodes, lines, coupled)
 u[5]

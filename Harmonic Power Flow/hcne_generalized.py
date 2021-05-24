@@ -17,7 +17,6 @@ L is last harmonic considered
 """
 
 # TODO: unify writing harmonics as frequency or multiple of fundamental freq.
-#  test for multiple nonlinear buses as well as only one nonlinear bus
 #  variable naming convention
 #  cleaner way of converting between panda and numpy objects
 
@@ -25,7 +24,7 @@ L is last harmonic considered
 import numpy as np
 import pandas as pd
 from scipy.sparse.linalg import spsolve
-from scipy.linalg import solve, block_diag as block_diag_dense
+#from scipy.linalg import solve, block_diag as block_diag_dense
 from scipy.sparse import diags, csr_matrix, hstack, vstack, block_diag
 import matplotlib.pyplot as plt
 from sys import getsizeof
@@ -51,7 +50,7 @@ base_current = 1000*BASE_POWER/BASE_VOLTAGE
 base_admittance = base_current/BASE_VOLTAGE
 
 
-# functions to change from algebraic to polar form
+# change complex numbers from algebraic to polar form
 def P2A(radii, angles):
     return radii * np.exp(1j*angles)
 
@@ -123,11 +122,7 @@ def init_buses_manually():
                  [19, "nonlinear", "smps", None, 0],
                  [20, "nonlinear", "smps", None, 0]]),
         columns=["ID", "type", "component", "S", "X_shunt"])
-    # generate columns for all frequencies (probably not needed without Fuchs)
-    # columns = []
-    # for h in HARMONICS:
-    #     columns.append("P" + str(h))
-    #     columns.append("Q" + str(h))
+
     # # df for real and reactive power of buses
     buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
                                columns=["P", "Q"])
@@ -294,15 +289,6 @@ def pf(Y, buses, thresh_f = 1e-6, max_iter_f = 30, plt_convergence=False):
     return V, err_t, n_iter_f
 
 
-# fundamental power flow execution
-# Y_h = build_admittance_matrices(buses, lines, HARMONICS)
-# V_h, err1_t, n_converged = pf(Y_h, buses)
-
-if HARMONICS == [1]:
-    pass
-    # exit()
-
-
 def import_Norton_Equivalents(buses, coupled):
     """import Norton Equivalents from files, returns dict of I_N, Y_N pairs"""
     # TODO: import NEs from other sources or input manually
@@ -374,7 +360,7 @@ def current_balance(V, Y, buses, NE):
         I_inj = current_injections(buses.ID[i], V, NE)
         # fundamental current balance
         dI_f[i-m] += I_inj[HARMONICS_FREQ[0]]
-        # harmonic current balance, subtract injection at respective index
+        # harmonic current balance, add injection at respective index
         for p in range(len(HARMONICS[1:])):
             dI_h[p*n + i] += I_inj[HARMONICS_FREQ[p+1]]
     # final current balance vector
@@ -537,7 +523,7 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
     global t_start_hpf_solve, t_end_hpf_solve
     t_start_hpf_solve = time.perf_counter()
     while err_h > thresh_h and n_iter_h < max_iter_h:
-        J = build_harmonic_jacobian(V, Y, NE, coupled)  # iter2: J[9,9] mit falschem Vorzeichen
+        J = build_harmonic_jacobian(V, Y, NE, coupled)
         x = update_harmonic_state_vec(J, x, f)
         V = update_harmonic_voltages(V, x)
         (f, err_h) = harmonic_mismatch(V, Y, buses, NE)
@@ -563,9 +549,22 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
     return V, err_h, n_iter_h, J
 
 
+def get_THD(V):
+    THD = pd.DataFrame(np.zeros((len(buses), 2)), columns=["THD_F", "THD_R"])
+    for bus in buses.ID:
+        THD.loc[bus-1, "THD_F"] = \
+            np.sqrt(sum((V.loc[idx[3:, bus-1], "V_m"])**2)) /\
+            (V.loc[idx[1, bus-1], "V_m"])
+        THD.loc[bus-1, "THD_R"] = \
+            np.sqrt(sum((V.loc[idx[3:, bus-1], "V_m"])**2)) /\
+            np.sqrt(sum((V.loc[idx[:, bus-1], "V_m"])**2))
+    return THD
+
+
 buses, lines, m, n = init_network("net2")
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
                                     plt_convergence=False)
+THD_buses = get_THD(V_h)
 
 
 t_end = time.perf_counter()
@@ -581,6 +580,4 @@ print("- Only HPF solve execution time: " +
 print("Total execution time: " +
       str(t_end - t_start) + " s")
 
-
-print("Harmonic Jacobian memory size: " + str(getsizeof(J)) + " Bytes")
 # if __name__ == '__main__':
