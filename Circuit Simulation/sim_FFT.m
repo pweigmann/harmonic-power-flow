@@ -10,6 +10,8 @@
     
 clear all
 
+circuit = "SMPS";
+
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
@@ -51,7 +53,7 @@ for k = (1:length(Initialph_f_range))
     fh = 0;
     
     % execute circuit simulation
-    sim("SMPS")
+    sim(circuit)
 
     % Simulation output
     Is_complete = S_scope.signals(1).values(1:end);
@@ -214,4 +216,4 @@ end
 
 % export results
 all = struct("results_f", results_f, "results_h", results_h);
-save('smps.mat', 'all');
+%save(circuit + ".mat", 'all');
