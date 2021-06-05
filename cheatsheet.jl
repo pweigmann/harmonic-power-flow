@@ -19,13 +19,14 @@ V2  # Dict of DataFrames, key = harmonic
 
 # usage examples
 # construct voltage for one harmonic as vector
-V1_1 = filter!(row -> row.harmonic == 1, V1)
+V1_1 = filter(row -> row.harmonic == 1, V1)
 V1_vec = V1_1.V_m.*exp.(1im.*V1_1.V_a)
 
 V2_vec = V2[1].V_m.*exp.(1im.*V2[1].V_a)
 
 V1_vec == V2_vec
 
+V1[V1.harmonic .!== 1 , "V_m"]
 
 # use "..." to unpack list in function calls 
 #blockdiag([LY[i] for i in keys(LY)]...)

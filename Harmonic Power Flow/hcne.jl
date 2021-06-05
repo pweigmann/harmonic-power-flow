@@ -1,3 +1,4 @@
+using CSV: length
 using DataFrames
 using OrderedCollections: OrderedDict
 using CSV
@@ -12,6 +13,8 @@ u: complex voltage
 v: voltage magnitude
 ϕ: voltage phase
 
+S1V1: Jacobian of derivatives of S at harmonic 1 wrt voltage magnitude at harmonic 1
+
 n buses total (i = 1, ..., n)
 slack bus is first bus (i = 1)
 m-1 linear buses (i = 1, ..., m-1)
@@ -23,7 +26,6 @@ L is last harmonic considered
 TODO 
 - harmonize usage of _1 or _f to reference fundamental frequency
 - add docstrings, rework comments
-- find bug that prevents convergence
 """
 
 # global variables
@@ -42,19 +44,65 @@ base_admittance = base_current/BASE_VOLTAGE
 # number of harmonics (without fundamental)
 K = length(HARMONICS) - 1
 
+
+struct PowerGrid
+    nodes
+    lines
+    m
+    n
+end
+
+
+struct State
+    u
+    i
+end
+
+
+struct Settings
+    coupled::Bool  # choose coupled or uncoupled Norton Equivalent model
+    harmonics::Array  # only uneven harmonics, must contain "1", example: [1,3,5,7]
+    base_frequency::Int  # in Hz, default: 50
+    base_voltage::Number  # in V, default: 230
+    base_power::Number  # in kVA, default: 1000
+
+    K::Int  # number of harmonics (without fundamental)
+    base_current::Number
+    base_admittance::Number
+end
+
+
+function init_settings(coupled, harmonics, base_frequency=50, base_voltage=230, base_power=1000)
+    K = length(harmonics) - 1
+    # derived pu base values
+    base_current = 1000*base_power/base_voltage
+    base_admittance = base_current/base_voltage
+    
+    Settings(coupled, harmonics, base_frequency, base_voltage, base_power,
+    K, base_current, base_admittance)
+end
+
+
+function init_power_grid(nodes::DataFrame, lines::DataFrame)
+    m = minimum(nodes[nodes[:,"type"] .== "nonlinear",:].ID)  # number of linear nodes
+    n = size(nodes, 1)  # total number of nodes
+
+    PowerGrid(nodes, lines, m, n)
+end
+
+
 function import_nodes_from_csv(filename)
-    df = CSV.read(filename * "_buses.csv", DataFrame)
-    df
+    CSV.read(filename * "_buses.csv", DataFrame)
 end
 
 
 function import_lines_from_csv(filename)
-    df = CSV.read(filename * "_lines.csv", DataFrame)
+    CSV.read(filename * "_lines.csv", DataFrame)
 end
 
 
-function import_nodes_manually()
-    nodes = DataFrame(
+function create_nodes_manually()
+    DataFrame(
         ID = 1:5, 
         type = ["slack", "PQ", "PQ", "PQ", "nonlinear"], 
         component = ["generator", "lin_load_1", "lin_load_2", nothing, "smps"],
@@ -65,8 +113,8 @@ function import_nodes_manually()
 end
 
 
-function import_lines_manually()
-    lines = DataFrame(
+function create_lines_manually()
+    DataFrame(
         ID = 1:5,
         fromID = 1:5,
         toID = [2,3,4,5,1],
@@ -149,7 +197,6 @@ function fund_mismatch(nodes, u, LY)
     u_1 = u[1].v .* exp.(1im*u[1].ϕ)
     s = (nodes.P + 1im*nodes.Q)/BASE_POWER
     mismatch = u_1 .* conj(LY_1*u_1) + s
-    # (different floating point?) inaccuracy compared to python 
     f = vcat(real(mismatch[2:end]), imag(mismatch[2:end]))
     err = maximum(abs.(f))
     f, err
@@ -176,8 +223,9 @@ function fund_jacobian(u, LY)
 end
 
 
-function update_fund_state_vec(J, x, f)
+function update_state_vec!(J, x, f)
     x - J\f  # Newton-Raphson iteration
+    # -> could try using NLsolve.jl
 end
 
 
@@ -198,7 +246,7 @@ function pf(LY, nodes, thresh_f = 1e-6, max_iter_f = 30,
     err_f_t = Dict()
     while err_f > thresh_f && n_iter_f <= max_iter_f
         J_f = fund_jacobian(u, LY)
-        x_f = update_fund_state_vec(J_f, x_f, f_f)
+        x_f = update_state_vec!(J_f, x_f, f_f)
         u = update_fund_voltages(u, x_f)
         f_f, err_f = fund_mismatch(nodes, u, LY)
         err_f_t[n_iter_f] = err_f
@@ -378,17 +426,11 @@ function build_harmonic_jacobian(u, LY, NE, coupled)
 end
 
 
-function update_harmonic_state_vec(J, x, f)
-    x - J\f  # actually same as fundamental function
-    # -> try using NLsolve.jl
-end
-
-
 function update_harmonic_voltages(u, x)
     # slice x in half to separate voltage magnitude and phase
     xv = x[1:(length(x)÷2)]
     xϕ = x[(length(x)÷2+1):end]
-    xϕ = xϕ .% (2*pi)  # ensure phase smaller 2pi
+    xϕ = xϕ .% (2*π)  # ensure phase smaller 2π
     for h in HARMONICS
         i = findall(HARMONICS .== h)[1] - 1
         if h == 1
@@ -415,7 +457,7 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
     err_h_t = Dict()
     while err_h > thresh_h && n_iter_h < max_iter_h
         J = build_harmonic_jacobian(u, LY, NE, coupled)
-        x = update_harmonic_state_vec(J, x, f)
+        x = update_state_vec!(J, x, f)
         u = update_harmonic_voltages(u, x)  
         f, err_h = harmonic_mismatch(u, LY, nodes, NE)
         err_h_t[n_iter_h] = err_h
@@ -424,8 +466,8 @@ function hpf(nodes, lines, coupled, thresh_h=1e-4, max_iter_h=50)
 
     # getting rid of negative voltage magnitudes:
     for h in HARMONICS
-        u[h].ϕ[u[h].v .< 0] .+= pi
-        u[h].ϕ .= u[h].ϕ .% (2*pi)
+        u[h].ϕ[u[h].v .< 0] .+= π
+        u[h].ϕ .= u[h].ϕ .% (2*π)
         u[h].v[u[h].v .< 0] = -u[h].v[u[h].v .< 0]
     end
 
@@ -448,6 +490,9 @@ function get_THD(u)
     end
 end
 
+
+settings = init_settings([1, 3, 5], 1000, true)
+net2 = init_power_grid(import_nodes_from_csv(NET_PATH*"net2"), import_lines_from_csv(NET_PATH*"net2"))
 
 nodes, lines, m, n = init_network("net2")
 coupled = true
