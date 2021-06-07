@@ -130,21 +130,6 @@ function create_lines_manually()
 end
 
 
-# function init_network(name, manually=false)
-#     if manually
-#         nodes = import_nodes_manually()
-#         lines = import_lines_manually()
-#     else
-#         nodes = import_nodes_from_csv(NET_PATH*name)
-#         lines = import_lines_from_csv(NET_PATH*name)
-#     end
-#     # find first nonlinear bus
-#     m = minimum(nodes[nodes[:,"type"] .== "nonlinear",:].ID)
-#     n = size(nodes, 1)
-#     nodes, lines, m, n
-# end
-
-
 """
     admittance_matrices(nodes, lines, harmonics)
 
@@ -188,7 +173,7 @@ function init_voltages(nodes, settings)
             )
         end
     end
-    u
+    return u
 end
 
 
@@ -206,7 +191,7 @@ function fund_mismatch(nodes, u, LY, base_power)
     mismatch = u_1 .* conj(LY_1*u_1) + s
     f = vcat(real(mismatch[2:end]), imag(mismatch[2:end]))
     err = maximum(abs.(f))
-    f, err
+    return f, err
 end
 
 
@@ -239,7 +224,7 @@ end
 function update_fund_voltages!(u, x)
     u[1].ϕ[2:end] = x[1:(length(x)÷2)]
     u[1].v[2:end] = x[(length(x)÷2+1):end]
-    u
+    return u
 end
 
 
@@ -504,10 +489,18 @@ function get_THD(u, nodes, harmonics)
 end
 
 
-settings1 = init_settings(true, [1, 3, 5])
+coupled_small = init_settings(true, [1, 3, 5])
+uncoupled_small = init_settings(false, [1, 3, 5])
+
+H = [h for h in 1:2:50]
+coupled_big = init_settings(true, H)
+uncoupled_big = init_settings(false, H)
+
 net1 = init_power_grid(import_nodes_from_csv(NET_PATH*"net1"), import_lines_from_csv(NET_PATH*"net1"))
 net2 = init_power_grid(import_nodes_from_csv(NET_PATH*"net2"), import_lines_from_csv(NET_PATH*"net2"))
 
 
-@time u, err_h_final, n_iter_h = hpf(net2, settings1)
-u[5]
+@time u, err_h_final, n_iter_h = hpf(net2, coupled_small)
+@time u, err_h_final, n_iter_h = hpf(net1, coupled_small)
+@time u, err_h_final, n_iter_h = hpf(net1, coupled_big)
+@time u, err_h_final, n_iter_h = hpf(net2, coupled_big)
