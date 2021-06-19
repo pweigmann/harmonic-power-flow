@@ -10,6 +10,6 @@ pp.create_line(net, 2, 0, 0.01, std_type="NAYY 4x50 SE")
 pp.create_load(net, bus=0, p_mw=100, q_mvar=100)
 pp.create_gen(net, bus=1, p_mw=-100, slack=True)
 
-pp.runpp(net)
+#pp.runpp(net)
 
 net.res_bus

@@ -33,10 +33,10 @@ import time
 # start timing
 t_start = time.perf_counter()
 
-# global variables TODO: import from config file
-BASE_POWER = 1000  # could also be be imported with infra, as nominal sys power
-BASE_VOLTAGE = 230
-H_MAX = 5
+# global variables
+BASE_POWER = 1000  # in W
+BASE_VOLTAGE = 230  # in V
+H_MAX = 10
 HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 #HARMONICS = [1, 5]
 NET_FREQ = 50
@@ -46,9 +46,9 @@ HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 idx = pd.IndexSlice
 
 # pu system
-base_current = 1000*BASE_POWER/BASE_VOLTAGE
+base_current = BASE_POWER/BASE_VOLTAGE
 base_admittance = base_current/BASE_VOLTAGE
-
+base_impedance = 1/base_admittance
 
 # change complex numbers from algebraic to polar form
 def P2A(radii, angles):
@@ -62,75 +62,44 @@ def A2P(x):
 # create infrastructure
 def init_lines_from_csv(filename):
     df = pd.read_csv(filename, delimiter=";")
+    df.loc[:, "R"] = df.R/base_impedance
+    df.loc[:, "X"] = df.X/base_impedance
     return df
 
 
 def init_lines_manually():
-    lines = pd.DataFrame(np.array([[1, 1, 2, 0.01, 0.01],
-                                   [2, 2, 3, 0.02, 0.08],
-                                   [3, 3, 4, 0.01, 0.02],
-                                   [4, 4, 5, 0.01, 0.02],
-                                   [5, 5, 6, 0.01, 0.02],
-                                   [6, 6, 7, 0.02, 0.08],
-                                   [7, 7, 8, 0.01, 0.02],
-                                   [8, 8, 9, 0.01, 0.02],
-                                   [9, 9, 10, 0.1, 0.02],
-                                   [10, 10, 11, 0.02, 0.08],
-                                   [11, 11, 12, 0.01, 0.02],
-                                   [12, 12, 13, 0.01, 0.02],
-                                   [13, 13, 14, 0.1, 0.02],
-                                   [14, 14, 15, 0.02, 0.08],
-                                   [15, 15, 16, 0.01, 0.02],
-                                   [16, 16, 17, 0.01, 0.2],
-                                   [17, 17, 18, 0.01, 0.02],
-                                   [18, 18, 19, 0.01, 0.2],
-                                   [19, 19, 20, 0.01, 0.02],
-                                   [20, 20, 1, 0.02, 0.08],
-                                   [21, 3, 14, 0.01, 0.02],
-                                   [22, 4, 15, 0.01, 0.02],
-                                   [23, 1, 11, 0.01, 0.02]]),
+    lines = pd.DataFrame(np.array([[1, 1, 2, 0.5, 0.5],
+                                   [2, 2, 3,   1,   4],
+                                   [3, 3, 4, 0.5,   1],
+                                   [4, 4, 1, 0.5,   1]]),
                          columns=["ID", "fromID", "toID", "R", "X"])
     return lines
 
 
 def init_buses_from_csv(filename):
     df = pd.read_csv(filename, delimiter=";")
+    df.loc[:, "S"] = df.S/BASE_POWER
+    df.loc[:, "P"] = df.P/BASE_POWER
+    df.loc[:, "Q"] = df.Q/BASE_POWER
+    df.loc[:, "X_shunt"] = df.X_shunt/base_impedance
     return df
 
 
 def init_buses_manually():
     # df for constant properties of buses
     buses_const = pd.DataFrame(
-        np.array([[1, "slack", "generator", 1000, 0.0001],
+        np.array([[1, "slack", "generator", 1000, 0.005],
                  [2, "PQ", "lin_load_1", None, 0],
                  [3, "PQ", "lin_load_2", None, 0],
-                 [4, "PQ", "lin_load_3", None, 0],
-                 [5, "PQ", "lin_load_4", None, 0],
-                 [6, "PQ", "lin_load_5", None, 0],
-                 [7, "PQ", "lin_load_6", None, 0],
-                 [8, "PQ", "lin_load_7", None, 0],
-                 [9, "PQ", "lin_load_8", None, 0],
-                 [10, "PQ", "lin_load_9", None, 0],
-                 [11, "PQ", "lin_load_10", None, 0],
-                 [12, "PQ", "lin_load_11", None, 0],
-                 [13, "PQ", "lin_load_12", None, 0],
-                 [14, "nonlinear", "smps", None, 0],
-                 [15, "nonlinear", "smps", None, 0],
-                 [16, "nonlinear", "smps", None, 0],
-                 [17, "nonlinear", "smps", None, 0],
-                 [18, "nonlinear", "smps", None, 0],
-                 [19, "nonlinear", "smps", None, 0],
-                 [20, "nonlinear", "smps", None, 0]]),
+                 [4, "nonlinear", "smps", None, 0]]),
         columns=["ID", "type", "component", "S", "X_shunt"])
 
     # # df for real and reactive power of buses
     buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
                                columns=["P", "Q"])
     # # insert fundamental powers, part of future import
-    buses_power["P"] = [0, 100, 100, 150, 250, 0, 100, 100, 150, 250, 0,
-                         100, 100, 150, 250, 0, 100, 100, 150, 250]
-    buses_power["Q"] = [0, 100, 100, 100, 100, 0, 100, 100, 100, 100, 0,
-                         100, 100, 100, 100, 0, 100, 100, 100, 100]
+    buses_power["P"] = [0, 100, 100, 150]
+    buses_power["Q"] = [0, 100, 100, 100]
     # combined df for buses
     buses = pd.concat([buses_const, buses_power], axis=1)
     return buses
@@ -167,7 +136,7 @@ def build_admittance_matrices(buses, lines, harmonics):
         index=multi_idx, columns=[buses.index.values], dtype="c16")
 
     # Harmonic admittance matrices
-    # reactance scales lin. with harmonic no. (Fuchs p.598) (good assumption?)
+    # reactance scales lin. with harmonic no. (Fuchs p.598)
     for h in harmonics:
         Y = np.zeros([len(buses), len(buses)], dtype=complex)
         # non-diagonal elements
@@ -209,7 +178,7 @@ def init_fund_state_vec(V):
 
 def fund_mismatch(buses, V, Y1):
     V_vec = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
-    S = (buses["P"] + 1j*buses["Q"])/BASE_POWER
+    S = (buses["P"] + 1j*buses["Q"])
     mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
     # again following PyPSA conventions
     f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
@@ -285,7 +254,7 @@ def pf(Y, buses, thresh_f = 1e-6, max_iter_f = 30, plt_convergence=False):
         print("Fundamental power flow converged after " + str(n_iter_f) +
               " iterations.")
     elif n_iter_f == max_iter_f:
-        print("Maximum of " + str(n_iter_f) + " iterations reached.")
+        print("Warning! Maximum of " + str(n_iter_f) + " iterations reached.")
     return V, err_t, n_iter_f
 
 
@@ -545,7 +514,7 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
         print("Harmonic power flow converged after " + str(n_iter_h) +
               " iterations.")
     elif n_iter_h == max_iter_h:
-        print("Maximum of " + str(n_iter_h) + " iterations reached.")
+        print("Warning! Maximum of " + str(n_iter_h) + " iterations reached.")
     return V, err_h, n_iter_h, J
 
 
@@ -579,5 +548,6 @@ print("- Only HPF solve execution time: " +
       str(t_end_hpf_solve - t_start_hpf_solve) + " s")
 print("Total execution time: " +
       str(t_end - t_start) + " s")
-
+print("THD [%]: ")
+print(str(THD_buses.THD_F*100))
 # if __name__ == '__main__':

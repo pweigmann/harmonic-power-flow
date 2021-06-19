@@ -29,7 +29,7 @@ TODO
 """
 
 # global variables
-NET_PATH = "harmonic-power-flow\\Harmonic Power Flow\\"
+NET_PATH = 
 
 
 struct PowerGrid
@@ -115,8 +115,8 @@ function create_nodes_manually()
         component = ["generator", "lin_load_1", "lin_load_2", nothing, "smps"],
         S = [1000, nothing, nothing, nothing, nothing],
         X_shunt = [0.0001, 0, 0, 0, 0],
-        P1 = [nothing, 100, 100, 0, 250],
-        Q1 = [nothing, 100, 100, 0, 100])
+        P = [nothing, 100, 100, 0, 250],
+        Q = [nothing, 100, 100, 0, 100])
 end
 
 
@@ -125,8 +125,8 @@ function create_lines_manually()
         ID = 1:5,
         fromID = 1:5,
         toID = [2,3,4,5,1],
-        R1 = [0.01, 0.02, 0.01, 0.01, 0.01],
-        X1 = [0.01, 0.08, 0.02, 0.02, 0.02])
+        R = [0.01, 0.02, 0.01, 0.01, 0.01],
+        X = [0.01, 0.08, 0.02, 0.02, 0.02])
 end
 
 
@@ -257,7 +257,7 @@ end
 
 # Harmonic Power Flow functions
 """Import Norton Equivalent parameters for all nonlinear devices in "nodes" from folder"""
-function import_Norton_Equivalents(nodes, settings, folder_path="harmonic-power-flow\\Circuit Simulation\\")
+function import_Norton_Equivalents(nodes, settings, folder_path="devices\\")
     NE = Dict()
     nl_components = unique(nodes[nodes.type .== "nonlinear", "component"])
     for device in nl_components
@@ -496,8 +496,8 @@ H = [h for h in 1:2:50]
 coupled_big = init_settings(true, H)
 uncoupled_big = init_settings(false, H)
 
-net1 = init_power_grid(import_nodes_from_csv(NET_PATH*"net1"), import_lines_from_csv(NET_PATH*"net1"))
-net2 = init_power_grid(import_nodes_from_csv(NET_PATH*"net2"), import_lines_from_csv(NET_PATH*"net2"))
+net1 = init_power_grid(import_nodes_from_csv("harmonic-power-flow\\Harmonic Power Flow\\net1"), import_lines_from_csv("harmonic-power-flow\\Harmonic Power Flow\\net1"))
+net2 = init_power_grid(import_nodes_from_csv("harmonic-power-flow\\Harmonic Power Flow\\net2"), import_lines_from_csv("harmonic-power-flow\\Harmonic Power Flow\\net2"))
 
 
 @time u, err_h_final, n_iter_h = hpf(net2, coupled_small)

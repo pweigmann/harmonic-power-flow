@@ -5,7 +5,7 @@ import numpy as np
 network = pypsa.Network()
 
 # add three buses
-n_buses = 3
+n_buses = 4
 
 for i in range(n_buses):
     network.add("Bus", "My bus {}".format(i),
@@ -24,7 +24,7 @@ print(network.lines)
 
 network.add("Generator", "My gen",
             bus="My bus 0",
-            p_set=100,
+            p_set=1000,
             control="PQ")
 # add a load at bus 1
 network.add("Load", "My load",

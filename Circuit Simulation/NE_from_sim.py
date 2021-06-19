@@ -26,6 +26,7 @@ dh[a, b]: a is index for harmonic, varying harmonic voltage source frequency
 df[c]:    c is index for measurement, varying fundamental voltage source angle
 '''
 
+# --- Data Cleaning ---
 # check imported data size
 if len(dh[0, :]) < 2:
     raise ValueError('At least 2 measurements needed for script to work.')
@@ -76,7 +77,7 @@ for s in df:
 I_inj = I_inj_complete.loc(axis=1)[50::dh[0, 0].cycles*2]
 
 
-# calculate Norton Equivalent parameters
+# --- calculate Norton Equivalent parameters, UNCOUPLED ---
 # uncoupled (see Thunberg.1999), 2*n measurements (of 1 freq.) for n harmonics
 # build difference between the two measurements, without fund, m2 - m1
 dI_h = (I_inj.loc[dh[0, 1].V_m_h] - I_inj.loc[dh[0, 0].V_m_h]).drop(
@@ -107,26 +108,26 @@ I_N_f = Y_N_f*V_f_m1 + I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]
 I_N_uc = I_N_f.append(I_N_h)
 Y_N_uc = Y_N_f.append(Y_N_h)
 
-# test (using measurement 1)
+# test uncoupled (using measurement 1)
 # calculate I_inj with NE
-I_inj_test = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m1).append(
-    V_supply.loc[dh[0, 0].V_m_h])))
+# I_inj_test = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m1).append(
+#     V_supply.loc[dh[0, 0].V_m_h])))
 # take I_inj from circuit sim
-I_inj_m1 = pd.Series(I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]).append(
-    pd.Series(np.diagonal(I_inj.loc[dh[0, 0].V_m_h], 1), index=supply_f))
-err = I_inj_test - I_inj_m1
+# I_inj_m1 = pd.Series(I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]).append(
+#     pd.Series(np.diagonal(I_inj.loc[dh[0, 0].V_m_h], 1), index=supply_f))
+# err = I_inj_test - I_inj_m1
 # test (using measurement 2)
-I_inj_test_2 = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m2).append(
-    V_supply.loc[dh[0, 1].V_m_h])))
-I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, df[1].V_a_f), [50]]).append(
-    pd.Series(np.diagonal(I_inj.loc[dh[0, 1].V_m_h], 1), index=supply_f))
-err2 = I_inj_test_2 - I_inj_m2
+# I_inj_test_2 = I_N_uc - np.squeeze(np.diag(Y_N_uc).dot(pd.Series(V_f_m2).append(
+#     V_supply.loc[dh[0, 1].V_m_h])))
+# I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, df[1].V_a_f), [50]]).append(
+#     pd.Series(np.diagonal(I_inj.loc[dh[0, 1].V_m_h], 1), index=supply_f))
+# err2 = I_inj_test_2 - I_inj_m2
+#
+# if np.linalg.norm((err, err2), np.inf) > 1e-6:
+#     print("Warning: uncoupled NE test failed!")
 
-if np.linalg.norm((err, err2), np.inf) > 1e-6:
-    print("Warning: uncoupled NE test failed!")
 
-
-# calculate Norton Equivalent parameters
+# --- calculate Norton Equivalent parameters, COUPLED ---
 # coupled (see Almeida.2010), n+1 measurements (of all freq.) for n harmonics
 # only one value for V_m_h needed (aka. one "measurement" of uncoupled NE)
 freq = [50] + supply_f  # all frequencies used as supply voltages
@@ -184,5 +185,5 @@ NE.loc["I_N_c", 0] = I_N_c.values
 NE.loc["Y_N_uc", 0] = Y_N_uc.values
 NE.loc["I_N_uc", 0] = I_N_uc.values
 
-NE.to_csv(device_name + "_NE.csv")
-print("Created file " + device_name + "_NE.csv")
+# NE.to_csv(device_name + "_NE.csv")
+# print("Created file " + device_name + "_NE.csv")
