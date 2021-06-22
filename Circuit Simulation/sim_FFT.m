@@ -15,7 +15,7 @@ circuit = "SMPS";
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 500;   % highest harmonic simulated, min = 150
+h_max = 500;   % highest frequency simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
