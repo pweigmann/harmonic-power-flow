@@ -4,7 +4,7 @@ import numpy as np
 
 network = pypsa.Network()
 
-# add three buses
+# add buses
 n_buses = 4
 
 for i in range(n_buses):

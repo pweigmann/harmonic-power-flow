@@ -1,3 +1,6 @@
+# Copy of HCNE Generalized to test fundamental power flow with pi lines and
+# transformers
+
 """ Harmonic Power Flow using Norton-Raphson
 
 rewriting the harmonic coupled norton equivalent method in a generalized and
@@ -50,11 +53,15 @@ def init_lines_from_csv(filename):
 
 
 def init_lines_manually():
-    lines = pd.DataFrame(np.array([[1, 1, 2, 0.5, 0.5],
-                                   [2, 2, 3,   1,   4],
-                                   [3, 3, 4, 0.5,   1],
-                                   [4, 4, 1, 0.5,   1]]),
-                         columns=["ID", "fromID", "toID", "R", "X"])
+    lines = pd.DataFrame(np.array([[1, 1, 2, 0.01425, 0.05828, 0.00338, 0.0, 0.95, 150],
+                                   [2, 2, 3, 0.0642, 0.083, 0, 0.00001, 1, 0]]),
+                         columns=["ID", "fromID", "toID", "R", "X", "G", "B",
+                                  "tau", "phase_shift"])
+    # pu system
+    lines.loc[:, "R"] = lines.R/base_impedance
+    lines.loc[:, "X"] = lines.X/base_impedance
+    lines.loc[:, "G"] = lines.G/base_impedance
+    lines.loc[:, "B"] = lines.B/base_impedance
     return lines
 
 
@@ -70,20 +77,26 @@ def init_buses_from_csv(filename):
 def init_buses_manually():
     # df for constant properties of buses
     buses_const = pd.DataFrame(
-        np.array([[1, "slack", "generator", 1000, 0.005],
-                 [2, "PQ", "lin_load_1", None, 0],
-                 [3, "PQ", "lin_load_2", None, 0],
-                 [4, "nonlinear", "smps", None, 0]]),
+        np.array([[1, "slack", "MV", 1000, 0.005],
+                 [2, None, None, None, 0],
+                 [3, "PQ", "lin_load_1", None, 0]]),
         columns=["ID", "type", "component", "S", "X_shunt"])
 
     # # df for real and reactive power of buses
     buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
                                columns=["P", "Q"])
     # # insert fundamental powers, part of future import
-    buses_power["P"] = [0, 100, 100, 150]
-    buses_power["Q"] = [0, 100, 100, 100]
+    buses_power["P"] = [0, 0, 100]
+    buses_power["Q"] = [0, 0, 50]
+
     # combined df for buses
     buses = pd.concat([buses_const, buses_power], axis=1)
+
+    # pu system
+    buses.loc[:, "S"] = buses.S/BASE_POWER
+    buses.loc[:, "P"] = buses.P/BASE_POWER
+    buses.loc[:, "Q"] = buses.Q/BASE_POWER
+    buses.loc[:, "X_shunt"] = buses.X_shunt/base_impedance
     return buses
 
 
@@ -118,22 +131,40 @@ def build_admittance_matrices(buses, lines, harmonics):
         index=multi_idx, columns=[buses.index.values], dtype="c16")
 
     # Harmonic admittance matrices
-    # reactance scales lin. with harmonic no. (Fuchs p.598)
+    # impedance scales lin. with harmonic no. (Fuchs p.598)
     for h in harmonics:
         Y = np.zeros([len(buses), len(buses)], dtype=complex)
         # non-diagonal elements
         for ix, line in lines.iterrows():
             Y[int(line.fromID - 1), int(line.toID - 1)] = \
-                -1/(line.R + 1j*line.X*h)
-            # admittance matrix is assumed to be symmetric
+                -1/(line.R + 1j*line.X*h) /\
+                (line.tau * np.exp(-1j*line.phase_shift/180*np.pi))
+            # admittance matrix is assumed to be symmetric except phase shift
             Y[int(line.toID - 1), int(line.fromID - 1)] = \
-                Y[int(line.fromID - 1), int(line.toID - 1)]
-        # slack self admittance added as subtransient(?) admittance (p.288/595)
+                -1/(line.R + 1j*line.X*h) /\
+                (line.tau * np.exp(1j*line.phase_shift/180*np.pi))
+
+        # diagonal elements
         for n in range(len(buses)):
+            # slack self admittance added as subtransient(?) admittance
+            # Fuchs (p.288/595) --> why not for fundamental?
             if buses["X_shunt"][n] != 0 and h != 1:
                 Y[n, n] = -sum(Y[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
             else:
                 Y[n, n] = -sum(Y[n, :])
+            # Adding shunt admittances for pi-model lines
+            # and tap ratio and phase shift for transformers
+            # (tap always highV sided, compare PyPsa Documentation)
+            for m in range(len(lines)):
+                # go through all lines, see if they are connected to bus n
+                if lines.loc[m, "fromID"] == n:
+                    Y[n, n] = Y[n, n] + \
+                              (lines.loc[m, "G"]+1j*h*lines.loc[m, "B"])/2
+                elif lines.loc[m, "toID"] == n:
+                    Y[n, n] = (Y[n, n] +
+                               (lines.loc[m, "G"]+1j*h*lines.loc[m, "B"])/2) / \
+                              (lines.loc[m, "tau"]**2)
+            # FIXME: For this to be correct, pu conversion needs to be changed
         Y_all.loc[h] = Y
     return Y_all
 
@@ -515,11 +546,11 @@ def get_THD(V):
 t_start = time.perf_counter()
 
 # global variables
-BASE_POWER = 1000  # in W
+BASE_POWER = 1000000  # in W
 BASE_VOLTAGE = 230  # in V
 H_MAX = 10
 HARMONICS = [h for h in range(1, H_MAX+1, 2)]
-#HARMONICS = [1, 5]
+# HARMONICS = [1, 5]
 NET_FREQ = 50
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 
@@ -532,8 +563,8 @@ base_admittance = base_current/BASE_VOLTAGE
 base_impedance = 1/base_admittance
 
 
+buses, lines, m, n = init_network("net2", False)
 
-buses, lines, m, n = init_network("net2")
 Y = build_admittance_matrices(buses, lines, HARMONICS)
 V_f, err_f, n_converged_f = pf(Y, buses)
 
