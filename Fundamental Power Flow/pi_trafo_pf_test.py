@@ -44,14 +44,6 @@ def A2P(x):
     return abs(x), np.angle(x)
 
 
-# create infrastructure
-def init_lines_from_csv(filename):
-    df = pd.read_csv(filename, delimiter=";")
-    df.loc[:, "R"] = df.R/base_impedance
-    df.loc[:, "X"] = df.X/base_impedance
-    return df
-
-
 def init_lines_manually():
     lines = pd.DataFrame(np.array([[1, 1, 2, 0.01425, 0.05828, 0.00338, 0.0, 0.95, 150],
                                    [2, 2, 3, 0.0642, 0.083, 0, 0.00001, 1, 0]]),
@@ -60,18 +52,9 @@ def init_lines_manually():
     # pu system
     lines.loc[:, "R"] = lines.R/base_impedance
     lines.loc[:, "X"] = lines.X/base_impedance
-    lines.loc[:, "G"] = lines.G/base_impedance
-    lines.loc[:, "B"] = lines.B/base_impedance
+    lines.loc[:, "G"] = lines.G/base_admittance
+    lines.loc[:, "B"] = lines.B/base_admittance
     return lines
-
-
-def init_buses_from_csv(filename):
-    df = pd.read_csv(filename, delimiter=";")
-    df.loc[:, "S"] = df.S/BASE_POWER
-    df.loc[:, "P"] = df.P/BASE_POWER
-    df.loc[:, "Q"] = df.Q/BASE_POWER
-    df.loc[:, "X_shunt"] = df.X_shunt/base_impedance
-    return df
 
 
 def init_buses_manually():
@@ -80,7 +63,7 @@ def init_buses_manually():
         np.array([[1, "slack", "MV", 1000, 0.005],
                  [2, None, None, None, 0],
                  [3, "PQ", "lin_load_1", None, 0]]),
-        columns=["ID", "type", "component", "S", "X_shunt"])
+        columns=["ID", "type", "component", "S", "X_sh"])
 
     # # df for real and reactive power of buses
     buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
@@ -96,17 +79,13 @@ def init_buses_manually():
     buses.loc[:, "S"] = buses.S/BASE_POWER
     buses.loc[:, "P"] = buses.P/BASE_POWER
     buses.loc[:, "Q"] = buses.Q/BASE_POWER
-    buses.loc[:, "X_shunt"] = buses.X_shunt/base_impedance
+    buses.loc[:, "X_sh"] = buses.X_sh/base_impedance
     return buses
 
 
-def init_network(name, from_csv=True):
-    if from_csv:
-        buses = init_buses_from_csv(name + "_buses.csv")
-        lines = init_lines_from_csv(name + "_lines.csv")
-    else:
-        buses = init_buses_manually()
-        lines = init_lines_manually()
+def init_network(name):
+    buses = init_buses_manually()
+    lines = init_lines_manually()
     # find first nonlinear bus
     if len(buses.index[buses["type"] == "nonlinear"]) > 0:
         m = min(buses.index[buses["type"] == "nonlinear"])
@@ -148,8 +127,8 @@ def build_admittance_matrices(buses, lines, harmonics):
         for n in range(len(buses)):
             # slack self admittance added as subtransient(?) admittance
             # Fuchs (p.288/595) --> why not for fundamental?
-            if buses["X_shunt"][n] != 0 and h != 1:
-                Y[n, n] = -sum(Y[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
+            if buses["X_sh"][n] != 0 and h != 1:
+                Y[n, n] = -sum(Y[n, :]) + 1/(1j*buses["X_sh"][n]*h)
             else:
                 Y[n, n] = -sum(Y[n, :])
             # Adding shunt admittances for pi-model lines
@@ -165,6 +144,7 @@ def build_admittance_matrices(buses, lines, harmonics):
                                (lines.loc[m, "G"]+1j*h*lines.loc[m, "B"])/2) / \
                               (lines.loc[m, "tau"]**2)
             # FIXME: For this to be correct, pu conversion needs to be changed
+            # --> voltage could be ok, but phase shift doesn't work
         Y_all.loc[h] = Y
     return Y_all
 

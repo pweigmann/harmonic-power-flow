@@ -43,47 +43,67 @@ def A2P(x):
 
 # create infrastructure
 def init_lines_from_csv(filename):
+    """ Import line data from .csv file.
+    
+    DataFrame with columns "ID", "fromID", "toID", "R", "X", "G", "B"
+
+    - IDs start from 1
+    - R + jX is the lines serial impedance [Ohm]
+    - G + jX is the lines shunt admittance [S] = [1/Ohm]
+    """
     df = pd.read_csv(filename, delimiter=";")
+
+    # convert to pu system
     df.loc[:, "R"] = df.R/base_impedance
     df.loc[:, "X"] = df.X/base_impedance
+    df.loc[:, "G"] = df.G/base_admittance
+    df.loc[:, "B"] = df.B/base_admittance
     return df
 
 
 def init_lines_manually():
-    lines = pd.DataFrame(np.array([[1, 1, 2, 0.5, 0.5],
-                                   [2, 2, 3,   1,   4],
-                                   [3, 3, 4, 0.5,   1],
-                                   [4, 4, 1, 0.5,   1]]),
-                         columns=["ID", "fromID", "toID", "R", "X"])
+    lines = pd.DataFrame(np.array([[1, 1, 2, 0.5, 0.5, 0, 0.05],
+                                   [2, 2, 3,   1,   4, 0, 0.1],
+                                   [3, 3, 4, 0.5,   1, 0, 0.05],
+                                   [4, 4, 1, 0.5,   1, 0, 0.05]]),
+                         columns=["ID", "fromID", "toID", "R", "X", "G", "B"])
+    lines.loc[:, "R"] = lines.R/base_impedance
+    lines.loc[:, "X"] = lines.X/base_impedance
+    lines.loc[:, "G"] = lines.G/base_admittance
+    lines.loc[:, "B"] = lines.B/base_admittance
     return lines
 
 
 def init_buses_from_csv(filename):
+    """ Import bus data from .csv file.
+    
+    DataFrame with columns "ID", "type", "component", "S", "P", "Q", "X_sh".
+
+    - IDs start from 1
+    - S = P + jQ is active and reactive Power [W]
+      it is negative for power generating devices and positive for loads
+    - X_sh is shunt admittance, set to 0 if none present
+    """
     df = pd.read_csv(filename, delimiter=";")
     df.loc[:, "S"] = df.S/BASE_POWER
     df.loc[:, "P"] = df.P/BASE_POWER
     df.loc[:, "Q"] = df.Q/BASE_POWER
-    df.loc[:, "X_shunt"] = df.X_shunt/base_impedance
+    df.loc[:, "X_sh"] = df.X_sh/base_impedance
     return df
 
 
 def init_buses_manually():
     # df for constant properties of buses
-    buses_const = pd.DataFrame(
-        np.array([[1, "slack", "generator", 1000, 0.005],
-                 [2, "PQ", "lin_load_1", None, 0],
-                 [3, "PQ", "lin_load_2", None, 0],
-                 [4, "nonlinear", "smps", None, 0]]),
-        columns=["ID", "type", "component", "S", "X_shunt"])
-
-    # # df for real and reactive power of buses
-    buses_power = pd.DataFrame(np.zeros((len(buses_const), 2)),
-                               columns=["P", "Q"])
-    # # insert fundamental powers, part of future import
-    buses_power["P"] = [0, 100, 100, 150]
-    buses_power["Q"] = [0, 100, 100, 100]
-    # combined df for buses
-    buses = pd.concat([buses_const, buses_power], axis=1)
+    buses = pd.DataFrame(
+        np.array([[1, "slack", "generator", -1000, 0, 0, 0.005],
+                  [2, "PQ", "lin_load_1", None, 100, 100, 0],
+                  [3, "PQ", "lin_load_2", None, 100, 100, 0],
+                  [4, "nonlinear", "smps", None, 150, 100, 0]]),
+        columns=["ID", "type", "component", "S", "P", "Q", "X_sh"])
+    buses.loc[:, "S"] = buses.S/BASE_POWER
+    buses.loc[:, "P"] = buses.P/BASE_POWER
+    buses.loc[:, "Q"] = buses.Q/BASE_POWER
+    buses.loc[:, "X_sh"] = buses.X_sh/base_impedance
     return buses
 
 
@@ -128,12 +148,20 @@ def build_admittance_matrices(buses, lines, harmonics):
             # admittance matrix is assumed to be symmetric
             Y[int(line.toID - 1), int(line.fromID - 1)] = \
                 Y[int(line.fromID - 1), int(line.toID - 1)]
-        # slack self admittance added as subtransient(?) admittance (p.288/595)
+        # self admittances added as subtransient(?) admittance (p.288/595)
         for n in range(len(buses)):
-            if buses["X_shunt"][n] != 0 and h != 1:
-                Y[n, n] = -sum(Y[n, :]) + 1/(1j*buses["X_shunt"][n]*h)
+            if buses["X_sh"][n] != 0 and h != 1:
+                Y[n, n] = -sum(Y[n, :]) + 1/(1j*buses["X_sh"][n]*h)
             else:
                 Y[n, n] = -sum(Y[n, :])
+            # Adding shunt admittances for each pi-model line connected to bus n
+            for m in range(len(lines)):
+                # go through all lines, see if they are connected to bus n,
+                # if yes add shunt admittance of pi line to bus admittance
+                if lines.loc[m, "fromID"] == n or lines.loc[m, "toID"]:
+                    Y[n, n] = Y[n, n] + \
+                              (lines.loc[m, "G"]+1j*h*lines.loc[m, "B"])/2
+
         Y_all.loc[h] = Y
     return Y_all
 
