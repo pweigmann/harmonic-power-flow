@@ -361,8 +361,7 @@ def harmonic_mismatch(V, Y, buses, NE):
 
     # fundamental power mismatch
     # add all linear buses to S except slack (# = m-2)
-    S = buses.loc[1:(m-1), "P"]/BASE_POWER + \
-        1j*buses.loc[1:(m-1), "Q"]/BASE_POWER
+    S = buses.loc[1:(m-1), "P"] + 1j*buses.loc[1:(m-1), "Q"]
     # prepare V and Y as needed
     V_i = V.loc[idx[1, 1:(m-1)], "V_m"] * \
         np.exp(1j*V.loc[idx[1, 1:(m-1)], "V_a"])
