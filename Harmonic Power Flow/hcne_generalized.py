@@ -31,7 +31,6 @@ from sys import getsizeof
 import time
 
 
-
 # change complex numbers from algebraic to polar form
 def P2A(radii, angles):
     return radii * np.exp(1j*angles)
@@ -158,7 +157,7 @@ def build_admittance_matrices(buses, lines, harmonics):
             for m in range(len(lines)):
                 # go through all lines, see if they are connected to bus n,
                 # if yes add shunt admittance of pi line to bus admittance
-                if lines.loc[m, "fromID"] == n or lines.loc[m, "toID"]:
+                if lines.loc[m, "fromID"] == n or lines.loc[m, "toID"] == n:
                     Y[n, n] = Y[n, n] + \
                               (lines.loc[m, "G"]+1j*h*lines.loc[m, "B"])/2
 
@@ -271,6 +270,7 @@ def pf(Y, buses, thresh_f = 1e-6, max_iter_f = 30, plt_convergence=False):
 def import_Norton_Equivalents(buses, coupled):
     """import Norton Equivalents from files, returns dict of I_N, Y_N pairs"""
     # TODO: import NEs from other sources or input manually
+    #  find a better way how to choose considered harmonics and correct file
     #  alternative format? (e.g. HDF5 instead of csv)
 
     NE = {}
@@ -278,6 +278,8 @@ def import_Norton_Equivalents(buses, coupled):
     for device in nl_components:
         file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
                         + device + "_NE.csv")
+        #file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
+        #        + device + "_" + str(max(HARMONICS_FREQ)) + "_NE.csv")
         NE_device = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
         # change column type from str to int
         NE_device.columns = NE_device.columns.astype(int)
@@ -408,7 +410,7 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
     # indices of all nonlinear buses
     nl_idx_all = sum([list(range(nl, nl+n-m)) for nl in nl_idx_start], [])
     nl_V = V_vec.iloc[nl_idx_all]
-    nl_V_norm = nl_V/A2P(nl_V)[0]
+    nl_V_norm = nl_V/V.iloc[nl_idx_all, 0]
     # Fuchs didn't derive the current injections, so maybe I shouldn't either?
     if coupled:
         for h in range(n_blocks):  # iterating through blocks vertically
@@ -466,12 +468,25 @@ def update_harmonic_voltages(V, x):
     V.iloc[idx[1:], 0] = x[:int(len(x)/2)]
     V.iloc[idx[1:], 1] = x[int(len(x)/2):]
 
+    # modulo phase wrt 2pi (doesn't work)
+    #V["V_a"] = V["V_a"] % (2*np.pi)
+
+    # simulating julia behaviour (also doesn't seam to help)
+    # whenever phase is bigger than 2pi, normal modulo
+    #V.loc[V.V_a > 2*np.pi, "V_a"] = \
+    #    V.loc[V.V_a > 2*np.pi, "V_a"] % 2*np.pi
+    # whenever phase is smaller than -2pi, not normal modulo
+    #V.loc[V.V_a < -2*np.pi, "V_a"] = \
+    #    -1*(abs(V.loc[V.V_a < -2*np.pi, "V_a"]) % 2*np.pi)
+
     # avoid negative voltage magnitudes
     # add pi to negative voltage magnitudes
     # V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
     # V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change sign
     # -> this doesn't work, why? Instead only performed once in the end
-    # -> normalization will give false negative result if doing this
+    # --> normalization will give false negative result if doing this
+
+    # TODO: calculations (probably normalization) independent of phase modulo
 
     return V
 
@@ -492,12 +507,12 @@ def hpf(buses, lines, coupled, thresh_h=1e-4, max_iter_h=50,
     t_end_init = time.perf_counter()
     V, err1_t, n_converged = pf(Y, buses)
     t_end_pf = time.perf_counter()
+    # import all NE of nonlinear devices present in "buses"
     NE = import_Norton_Equivalents(buses, coupled)
     t_end_NE_import = time.perf_counter()
     n_iter_h = 0
     f, err_h = harmonic_mismatch(V, Y, buses, NE)
     x = harmonic_state_vector(V)
-    # import all NE of nonlinear devices present in "buses"
     err_h_t = {}
     global t_start_hpf_solve, t_end_hpf_solve
     t_start_hpf_solve = time.perf_counter()
@@ -545,10 +560,11 @@ t_start = time.perf_counter()
 # global variables
 BASE_POWER = 1000  # in W
 BASE_VOLTAGE = 230  # in V
-H_MAX = 10
-HARMONICS = [h for h in range(1, H_MAX+1, 2)]
-#HARMONICS = [1, 5]
+
+H_MAX = 5  # has to be either 5, 21, 51 or 101
+
 NET_FREQ = 50
+HARMONICS = [h for h in range(1, H_MAX+1, 2)]
 HARMONICS_FREQ = [NET_FREQ * i for i in HARMONICS]
 
 # helper definitions
@@ -560,15 +576,14 @@ base_admittance = base_current/BASE_VOLTAGE
 base_impedance = 1/base_admittance
 
 
-
 buses, lines, m, n = init_network("net2")
-Y = build_admittance_matrices(buses, lines, HARMONICS)
-V_f, err_f, n_converged_f = pf(Y, buses)
+#Y = build_admittance_matrices(buses, lines, HARMONICS)
+#V_f, err_f, n_converged_f = pf(Y, buses)
 
 
-# V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
-#                                     plt_convergence=False)
-# THD_buses = get_THD(V_h)
+V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
+                                    plt_convergence=False)
+THD_buses = get_THD(V_h)
 
 
 t_end = time.perf_counter()

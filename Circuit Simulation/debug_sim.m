@@ -4,8 +4,8 @@
     
 clear all
 
-circuit_model = "EV_X";
-circuit = "EV_4";
+circuit_model = "SMPS";
+circuit = "SMPS";
 
 % fixed parameters
 T = 1e-6;  % time-step
@@ -14,7 +14,7 @@ h_max = 500;   % highest frequency simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
-supply_voltage_f = [230]; %
+supply_voltage_f = [300]; %
 %Va = 230;  % fundamental voltage magnitude
 Initialph_f_range = [0];  % fundamental voltage phase, [degree]
 

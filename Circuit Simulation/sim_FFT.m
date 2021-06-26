@@ -1,5 +1,6 @@
 % Skript for running a series of circuit simulations and calculating the
-% corresponding harmonics via FFT. 
+% corresponding harmonics via FFT. Returns Y_N and I_N for coupled and
+% uncoupled model as "<circuit>_<h_max>.mat"
 % Source: "SMPS.mdl": Mahmoud Draz, DAI Labor, TU Berlin
 
 % tests evaluation:
@@ -15,7 +16,7 @@ circuit = "SMPS";
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 500;   % highest frequency simulated, min = 150
+f_max = 350;   % highest frequency simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
@@ -24,7 +25,7 @@ Va = 230;  % fundamental voltage magnitude
 Initialph_f_range = [0, 10];  % fundamental voltage phase, [degree]
 
 % harmonic voltage source (variable operating conditions)
-supply_harmonics = 50*(3:2:h_max/f);  % harmonic frequency range
+supply_harmonics = 50*(3:2:f_max/f);  % harmonic frequency range
 supply_voltage_h = [2.3, 23];  % harmonic voltage magnitude range
 Initialph_h = 20;  % harmonic voltage phase, [degree]
 
@@ -87,14 +88,14 @@ for k = (1:length(Initialph_f_range))
     results_f(k, 1).V_a_f = Initialph_f;
     results_f(k, 1).V_a_h = Initialph_h;
     results_f(k, 1).f_h = fh;
-    results_f(k, 1).H = H(1:int32(cycles*h_max/f+1));
-    results_f(k, 1).I_inj = I_inj(1:int32(cycles*h_max/f+1));
-    results_f(k, 1).I_inj_phase = I_inj_phase(1:int32(cycles*h_max/f+1));
-    results_f(k, 1).Vs_phase = Vs_phase(1:int32(cycles*h_max/f+1));
+    results_f(k, 1).H = H(1:int32(cycles*f_max/f+1));
+    results_f(k, 1).I_inj = I_inj(1:int32(cycles*f_max/f+1));
+    results_f(k, 1).I_inj_phase = I_inj_phase(1:int32(cycles*f_max/f+1));
+    results_f(k, 1).Vs_phase = Vs_phase(1:int32(cycles*f_max/f+1));
     results_f(k, 1).t_start = t_start;
     results_f(k, 1).cycles = cycles;
     results_f(k, 1).Fs = T;
-    results_f(k, 1).H_max = h_max;
+    results_f(k, 1).H_max = f_max;
 
     % Plot in time and frequency domain
     h_plot_max = 21;  % plot harmonics until
@@ -171,14 +172,14 @@ for i = (1:length(supply_harmonics))
         results_h(i, j).V_a_f = Initialph_f;
         results_h(i, j).V_a_h = Initialph_h;
         results_h(i, j).f_h = fh;
-        results_h(i, j).H = H(1:int32(cycles*h_max/f+1));
-        results_h(i, j).I_inj = I_inj(1:int32(cycles*h_max/f+1));
-        results_h(i, j).I_inj_phase = I_inj_phase(1:int32(cycles*h_max/f+1));
-        results_h(i, j).Vs_phase = Vs_phase(1:int32(cycles*h_max/f+1));
+        results_h(i, j).H = H(1:int32(cycles*f_max/f+1));
+        results_h(i, j).I_inj = I_inj(1:int32(cycles*f_max/f+1));
+        results_h(i, j).I_inj_phase = I_inj_phase(1:int32(cycles*f_max/f+1));
+        results_h(i, j).Vs_phase = Vs_phase(1:int32(cycles*f_max/f+1));
         results_h(i, j).t_start = t_start;
         results_h(i, j).cycles = cycles;
         results_h(i, j).Fs = T;
-        results_h(i, j).H_max = h_max;
+        results_h(i, j).H_max = f_max;
 
         % Plot in time and frequency domain
         h_plot_max = 21;  % plot harmonics until
@@ -215,5 +216,5 @@ for i = (1:length(supply_harmonics))
 end
 
 % export results
-all = struct("results_f", results_f, "results_h", results_h);
-%save(circuit + ".mat", 'all');
+%all = struct("results_f", results_f, "results_h", results_h);
+%save(circuit + "_" + f_max + ".mat", 'all');
