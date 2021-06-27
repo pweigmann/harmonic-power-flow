@@ -10,11 +10,11 @@ circuit = "SMPS";
 % fixed parameters
 T = 1e-6;  % time-step
 t = 0.2-T;  % total simulation time
-h_max = 500;   % highest frequency simulated, min = 150
+h_max = 1050;   % highest frequency simulated, min = 150
 
 % fundamental voltage source
 f = 50;  % fundamental frequency
-supply_voltage_f = [300]; %
+supply_voltage_f = [230]; %
 %Va = 230;  % fundamental voltage magnitude
 Initialph_f_range = [0];  % fundamental voltage phase, [degree]
 
@@ -168,7 +168,7 @@ for k = (1:length(Initialph_f_range))
     results_f(k, 1).H_max = h_max;
 
     % Plot in time and frequency domain
-    h_plot_max = 39;  % plot harmonics until
+    h_plot_max = 21;  % plot harmonics until
 
     subplot(2,2,1)
     plot(time, Vs)

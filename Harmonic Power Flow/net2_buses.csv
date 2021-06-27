@@ -1,5 +1,5 @@
 ID;type;component;S;P;Q;X_sh
-1;slack;generator;1000;0;0;0.005
+1;slack;generator;0;0;0;0.005
 2;PQ;lin_load_2;0;100;100;0
 3;PQ;nothing;0;0;0;0
 4;nonlinear;SMPS;0;250;100;0

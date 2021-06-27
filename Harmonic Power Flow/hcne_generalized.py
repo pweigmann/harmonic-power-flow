@@ -76,33 +76,36 @@ def init_lines_manually():
 def init_buses_from_csv(filename):
     """ Import bus data from .csv file.
     
-    DataFrame with columns "ID", "type", "component", "S", "P", "Q", "X_sh".
+    DataFrame with columns:
+    ["ID", "type", "component", "S", "P", "Q", "X_sh", "V_nom"]
 
-    - IDs start from 1
+    - IDs start from 1 (slack), then list PV, then PQ buses, then nonlinear
     - S = P + jQ is active and reactive Power [W]
       it is negative for power generating devices and positive for loads
-    - X_sh is shunt admittance, set to 0 if none present
+    - X_sh is shunt impedance, set to 0 if none present
     """
     df = pd.read_csv(filename, delimiter=";")
     df.loc[:, "S"] = df.S/BASE_POWER
     df.loc[:, "P"] = df.P/BASE_POWER
     df.loc[:, "Q"] = df.Q/BASE_POWER
     df.loc[:, "X_sh"] = df.X_sh/base_impedance
+    df.loc[:, "V_nom"] = df.V_nom/BASE_VOLTAGE
     return df
 
 
 def init_buses_manually():
     # df for constant properties of buses
     buses = pd.DataFrame(
-        np.array([[1, "slack", "generator", -1000, 0, 0, 0.005],
-                  [2, "PQ", "lin_load_1", None, 100, 100, 0],
-                  [3, "PQ", "lin_load_2", None, 100, 100, 0],
-                  [4, "nonlinear", "smps", None, 150, 100, 0]]),
-        columns=["ID", "type", "component", "S", "P", "Q", "X_sh"])
+        np.array([[1, "slack", "generator", 0, 0, 0, 0.005, 0],
+                  [2, "PQ", "lin_load_1", 0, 100, 100, 0, 0],
+                  [3, "PQ", "lin_load_2", 0, 100, 100, 0, 0],
+                  [4, "nonlinear", "smps", 0, 150, 100, 0, 0]]),
+        columns=["ID", "type", "component", "S", "P", "Q", "X_sh", "V_nom"])
     buses.loc[:, "S"] = buses.S/BASE_POWER
     buses.loc[:, "P"] = buses.P/BASE_POWER
     buses.loc[:, "Q"] = buses.Q/BASE_POWER
     buses.loc[:, "X_sh"] = buses.X_sh/base_impedance
+    buses.loc[:, "V_nom"] = buses.V_nom/BASE_VOLTAGE
     return buses
 
 
@@ -119,7 +122,8 @@ def init_network(name, from_csv=True):
     else:
         m = len(buses)
     n = len(buses)
-    return buses, lines, m, n
+    c = len(buses[buses.type == "PV"])
+    return buses, lines, m, n, c
 
 
 # Functions for Fundamental Power Flow
@@ -172,7 +176,7 @@ def init_voltages(buses, harmonics):
                      index=multi_idx, columns=["V_m", "V_a"])
     V.sort_index(inplace=True)
     # set standard initial voltage magnitudes (in p.u.)
-    V.loc[1, "V_m"] = 1
+    V.loc[1, "V_m"] = 1  # TODO: use V_nom?
     if len(harmonics) > 1:
         V.loc[harmonics[1]:, "V_m"] = 0.1
     return V
@@ -181,7 +185,8 @@ def init_voltages(buses, harmonics):
 def init_fund_state_vec(V):
     # following PyPSA convention instead of Fuchs by not alternating between
     # voltage angle and magnitude
-    x = np.append(V.loc[(1, "V_a")][1:], V.loc[(1, "V_m")][1:])
+    # V_a for PQ and PV buses, V_m only for PQ buses
+    x = np.append(V.loc[(1, "V_a")][1:], V.loc[(1, "V_m")][(1+c):])
     return x
 
 
@@ -190,7 +195,7 @@ def fund_mismatch(buses, V, Y1):
     S = (buses["P"] + 1j*buses["Q"])
     mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
     # again following PyPSA conventions
-    f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[1:]])
+    f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[(1+c):]])
     err = abs(f).max()
     return f, err
 
@@ -208,9 +213,9 @@ def build_jacobian(V, Y1):
 
     # divide sub-matrices into real and imag part, cut off slack, build J
     dPdt = csr_matrix(dSdt[1:, 1:].real)
-    dPdV = csr_matrix(dSdV[1:, 1:].real)
-    dQdt = csr_matrix(dSdt[1:, 1:].imag)
-    dQdV = csr_matrix(dSdV[1:, 1:].imag)
+    dPdV = csr_matrix(dSdV[1:, (1+c):].real)
+    dQdt = csr_matrix(dSdt[(1+c):, 1:].imag)
+    dQdV = csr_matrix(dSdV[(1+c):, (1+c):].imag)
     J = vstack([hstack([dPdt, dPdV]),
                 hstack([dQdt, dQdV])], format="csr")
     return J
@@ -218,18 +223,19 @@ def build_jacobian(V, Y1):
 
 def update_fund_state_vec(J, x, f):
     """ perform Newton-Raphson iteration """
-    # TODO: try other solvers
+    # TODO: find and try other solvers
     x_new = x - spsolve(J, f.T)
     return x_new
 
 
 def update_fund_voltages(V, x):
-    V.loc[idx[1, 1:], "V_a"] = x[:int(len(x)/2)]
-    V.loc[idx[1, 1:], "V_m"] = x[int(len(x)/2):]
+    V.loc[idx[1, 1:], "V_a"] = x[0:(n-1)]
+    V.loc[idx[1, (1+c):], "V_m"] = x[(n-1):]
     # avoid negative voltage magnitudes (to be able to norm with abs())
-    V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
-    V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change signum
-    V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
+    # --> any scenario where I actually need this?
+    # V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
+    # V.loc[V["V_m"] < 0, "V_m"] = -V.loc[V["V_m"] < 0, "V_m"]  # change signum
+    # V["V_a"] = V["V_a"] % (2*np.pi)  # modulo phase wrt 2pi
     return V
 
 
@@ -276,10 +282,10 @@ def import_Norton_Equivalents(buses, coupled):
     NE = {}
     nl_components = buses.component[buses.type == "nonlinear"].unique()
     for device in nl_components:
-        file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
-                        + device + "_NE.csv")
         #file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
-        #        + device + "_" + str(max(HARMONICS_FREQ)) + "_NE.csv")
+        #                + device + "_NE.csv")
+        file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
+                + device + "_" + str(max(HARMONICS_FREQ)) + "_NE.csv")
         NE_device = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
         # change column type from str to int
         NE_device.columns = NE_device.columns.astype(int)
@@ -411,6 +417,7 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
     nl_V = V_vec.iloc[nl_idx_all]
     nl_V_norm = nl_V/V.iloc[nl_idx_all, 0]
     # Fuchs didn't derive the current injections, so maybe I shouldn't either?
+    # --> Algorithm is diverging without them.
     if coupled:
         for h in range(n_blocks):  # iterating through blocks vertically
             for p in range(n_blocks):   # ... and horizontally
@@ -575,17 +582,19 @@ base_admittance = base_current/BASE_VOLTAGE
 base_impedance = 1/base_admittance
 
 
-buses, lines, m, n = init_network("net2")
-#Y = build_admittance_matrices(buses, lines, HARMONICS)
-#V_f, err_f, n_converged_f = pf(Y, buses)
+buses, lines, m, n, c = init_network("net3")
+Y = build_admittance_matrices(buses, lines, HARMONICS)
+V_f, err_f, n_converged_f = pf(Y, buses)
 
 
-V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=True,
-                                    plt_convergence=False)
-THD_buses = get_THD(V_h)
+#V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=False,
+#                                    plt_convergence=False)
+#THD_buses = get_THD(V_h)
 
+#V_m_bus4 = V_h.loc[idx[:, 3], "V_m"]
+#plt.bar(HARMONICS, V_m_bus4)
 
-t_end = time.perf_counter()
+#t_end = time.perf_counter()
 # print("Init execution time: " + str(t_end_init - t_start) + " s")
 # print("Fundamental Power Flow execution time: " +
 #       str(t_end_pf - t_end_init) + " s")
