@@ -10,6 +10,7 @@ https://github.com/PyPSA/PyPSA/blob/d05b22553403e69e8155fb06cf70618bf9737bf3/pyp
 
 n buses total (i = 1, ..., n)
 slack bus is first bus (i = 1)
+c PV buses (including slack, i = 1, ..., c)
 m-1 linear buses (i = 1, ..., m-1)
 n-m+1 nonlinear buses (i = m, ..., n)
 K harmonics considered (excluding fundamental)
@@ -110,6 +111,7 @@ def init_buses_manually():
 
 
 def init_network(name, from_csv=True):
+    # TODO: sort buses here, so that users don't have to follow sorting rules
     if from_csv:
         buses = init_buses_from_csv(name + "_buses.csv")
         lines = init_lines_from_csv(name + "_lines.csv")
@@ -122,7 +124,7 @@ def init_network(name, from_csv=True):
     else:
         m = len(buses)
     n = len(buses)
-    c = len(buses[buses.type == "PV"])
+    c = len(buses[buses.type == "PV"]) + 1
     return buses, lines, m, n, c
 
 
@@ -186,7 +188,7 @@ def init_fund_state_vec(V):
     # following PyPSA convention instead of Fuchs by not alternating between
     # voltage angle and magnitude
     # V_a for PQ and PV buses, V_m only for PQ buses
-    x = np.append(V.loc[(1, "V_a")][1:], V.loc[(1, "V_m")][(1+c):])
+    x = np.append(V.loc[(1, "V_a")][1:], V.loc[(1, "V_m")][c:])
     return x
 
 
@@ -195,7 +197,7 @@ def fund_mismatch(buses, V, Y1):
     S = (buses["P"] + 1j*buses["Q"])
     mismatch = np.array(V_vec*np.conj(Y1.dot(V_vec)) + S, dtype="c16")
     # again following PyPSA conventions
-    f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[(1+c):]])
+    f = csr_matrix(np.r_[mismatch.real[1:], mismatch.imag[c:]])
     err = abs(f).max()
     return f, err
 
@@ -213,9 +215,9 @@ def build_jacobian(V, Y1):
 
     # divide sub-matrices into real and imag part, cut off slack, build J
     dPdt = csr_matrix(dSdt[1:, 1:].real)
-    dPdV = csr_matrix(dSdV[1:, (1+c):].real)
-    dQdt = csr_matrix(dSdt[(1+c):, 1:].imag)
-    dQdV = csr_matrix(dSdV[(1+c):, (1+c):].imag)
+    dPdV = csr_matrix(dSdV[1:, c:].real)
+    dQdt = csr_matrix(dSdt[c:, 1:].imag)
+    dQdV = csr_matrix(dSdV[c:, c:].imag)
     J = vstack([hstack([dPdt, dPdV]),
                 hstack([dQdt, dQdV])], format="csr")
     return J
@@ -230,7 +232,7 @@ def update_fund_state_vec(J, x, f):
 
 def update_fund_voltages(V, x):
     V.loc[idx[1, 1:], "V_a"] = x[0:(n-1)]
-    V.loc[idx[1, (1+c):], "V_m"] = x[(n-1):]
+    V.loc[idx[1, c:], "V_m"] = x[(n-1):]
     # avoid negative voltage magnitudes (to be able to norm with abs())
     # --> any scenario where I actually need this?
     # V.loc[V["V_m"] < 0, "V_a"] = V.loc[V["V_m"] < 0, "V_a"] - np.pi
