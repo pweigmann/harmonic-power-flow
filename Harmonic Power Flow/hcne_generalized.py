@@ -11,7 +11,7 @@ https://github.com/PyPSA/PyPSA/blob/d05b22553403e69e8155fb06cf70618bf9737bf3/pyp
 n buses total (i = 1, ..., n)
 slack bus is first bus (i = 1)
 c PV buses (including slack, i = 1, ..., c)
-m-1 linear buses (i = 1, ..., m-1)
+m-1 linear buses (i = 1, ..., m-1)  -> incorrect, index confusion happened
 n-m+1 nonlinear buses (i = m, ..., n)
 K harmonics considered (excluding fundamental)
 L is last harmonic considered
@@ -209,17 +209,17 @@ def build_jacobian(V, Y1):
     V_diag = diags(V_vec)
     V_diag_norm = diags(V_vec/abs(V_vec))
 
-    dSdt = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
+    dSda = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
     dSdV = V_diag_norm @ np.conj(I_diag) + \
         V_diag @ np.conj(Y1 @ V_diag_norm)
 
     # divide sub-matrices into real and imag part, cut off slack, build J
-    dPdt = csr_matrix(dSdt[1:, 1:].real)
+    dPda = csr_matrix(dSda[1:, 1:].real)
     dPdV = csr_matrix(dSdV[1:, c:].real)
-    dQdt = csr_matrix(dSdt[c:, 1:].imag)
+    dQda = csr_matrix(dSda[c:, 1:].imag)
     dQdV = csr_matrix(dSdV[c:, c:].imag)
-    J = vstack([hstack([dPdt, dPdV]),
-                hstack([dQdt, dQdV])], format="csr")
+    J = vstack([hstack([dPda, dPdV]),
+                hstack([dQda, dQdV])], format="csr")
     return J
 
 
@@ -385,14 +385,16 @@ def harmonic_mismatch(V, Y, buses, NE):
     f_c = np.concatenate([dS, dI])
 
     # Convergence: err_h < THRESH_H
-    f = np.concatenate([f_c.real, f_c.imag])
+    f = np.concatenate([f_c.real, f_c[c-1:].imag])
     err_h = np.linalg.norm(f, np.Inf)
     return f, err_h
 
 
 def harmonic_state_vector(V):
-    """ returns voltages vector, magnitude then phase, without slack at h=1 """
-    x = np.append(V.V_m[1:], V.V_a[1:])
+    """ returns voltages vector, phase then magnitude
+
+    at h=1: without slack and without magnitude for PV buses"""
+    x = np.append(V.V_a[1:], V.V_m[c:])
     return x
 
 
@@ -404,9 +406,9 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
     V_norm_diag = diags(np.array(V_norm))
     Y_diag = block_diag([np.array(Y.loc[i]) for i in HARMONICS], format="csr")
 
-    # IV and IT, convert to lil_matrix for more efficient element addition
-    IV = (Y_diag @ V_norm_diag).tolil()  # diagonal blocks for p = h
-    IT = (1j*Y_diag @ V_diag).tolil()
+    # dIdV and dIdA, convert to lil_matrix for more efficient element addition
+    dIdV = (Y_diag @ V_norm_diag).tolil()  # diagonal blocks for p = h
+    dIdA = (1j*Y_diag @ V_diag).tolil()
 
     # iterate through IV and subtract derived current injections
     # number of harmonics (without fundamental)
@@ -427,9 +429,9 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
                     # within NE "[1]" points to Y_N
                     Y_N = NE[buses.loc[i].component][1]
                     # subtract derived current injections at respective idx
-                    IV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
+                    dIdV[h*n+i, p*n+i] -= Y_N.iloc[h, p] * \
                                             nl_V_norm[(HARMONICS[p], i)]
-                    IT[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
+                    dIdA[h*n+i, p*n+i] -= 1j*Y_N.iloc[h, p] * \
                                             nl_V[(HARMONICS[p], i)]
     else:
         for h in range(n_blocks):  # iterating through blocks diagonally (p=h)
@@ -437,13 +439,14 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
                 # within NE "[1]" points to Y_N
                 Y_N = NE[buses.loc[i].component][1]
                 # Y_N is one-dimensional for uncoupled case
-                IV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
-                IT[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
+                dIdV[h*n+i, h*n+i] -= Y_N.iloc[0, h]*nl_V_norm[(HARMONICS[h], i)]
+                dIdA[h*n+i, h*n+i] -= 1j*Y_N.iloc[0, h]*nl_V[(HARMONICS[h], i)]
     # crop
-    IV = IV[m:, 1:]
-    IT = IT[m:, 1:]
+    dIdA = dIdA[m:, 1:]
+    dIdV = dIdV[m:, c:]
 
-    # SV and ST (from fundamental)
+
+    # SV and SA (from fundamental)
     # TODO: Harmonize sorting with fundamental
     Y1 = csr_matrix(Y.loc[1])
     V_vec_1 = V.loc[1, "V_m"]*np.exp(1j*V.loc[1, "V_a"])
@@ -451,17 +454,22 @@ def build_harmonic_jacobian(V, Y, NE, coupled):
     V_diag = diags(V_vec_1)
     V_diag_norm = diags(V_vec_1/V.loc[1, "V_m"])
 
-    S1V1 = V_diag_norm @ np.conj(I_diag) \
+    dS1dA1 = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
+    dS1dV1 = V_diag_norm @ np.conj(I_diag) \
         + V_diag @ np.conj(Y1 @ V_diag_norm)
-    S1T1 = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
+    
+    dSdA = csr_matrix(hstack([dS1dA1, np.zeros((n, n*K))]))
+    dSdV = csr_matrix(hstack([dS1dV1, np.zeros((n, n*K))]))
 
-    SV = hstack([S1V1[1:m, 1:], np.zeros((m-1, n*K))])
-    ST = hstack([S1T1[1:m, 1:], np.zeros((m-1, n*K))])
-
-    J = vstack([hstack([SV.real, ST.real]),
-                hstack([IV.real, IT.real]),
-                hstack([SV.imag, ST.imag]),
-                hstack([IV.imag, IT.imag])], format="csr")
+    dPdA = dSdA[1:m, 1:].real
+    dPdV = dSdV[1:m, c:].real
+    dQdA = dSdA[c:m, 1:].imag
+    dQdV = dSdV[c:m, c:].imag
+    
+    J = vstack([hstack([dPdA, dPdV]),
+                hstack([dIdA.real, dIdV.real]),
+                hstack([dQdA, dQdV]),
+                hstack([dIdA.imag, dIdV.imag])], format="csr")
     return J
 
 
@@ -473,8 +481,9 @@ def update_harmonic_state_vec(J, x, f):
 
 def update_harmonic_voltages(V, x):
     """update and clean all voltages after iteration"""
-    V.iloc[idx[1:], 0] = x[:int(len(x)/2)]
-    V.iloc[idx[1:], 1] = x[int(len(x)/2):]
+    V.iloc[idx[1:], 1] = x[:(n*len(HARMONICS)-1)]
+    V.iloc[idx[c:], 0] = x[(n*len(HARMONICS)-1):]
+
 
     # modulo phase wrt 2pi (doesn't work)
     #V["V_a"] = V["V_a"] % (2*np.pi)
@@ -589,8 +598,8 @@ Y = build_admittance_matrices(buses, lines, HARMONICS)
 V_f, err_f, n_converged_f = pf(Y, buses)
 
 
-#V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=False,
-#                                    plt_convergence=False)
+V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=False,
+                                    plt_convergence=False)
 #THD_buses = get_THD(V_h)
 
 #V_m_bus4 = V_h.loc[idx[:, 3], "V_m"]
