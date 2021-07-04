@@ -6,7 +6,7 @@ Model {
     NumRootInports	    0
     NumRootOutports	    0
     ParameterArgumentNames  ""
-    ComputedModelVersion    "1.25"
+    ComputedModelVersion    "1.26"
     NumModelReferences	    0
     NumTestPointedSignals   0
     NumProvidedFunctions    0
@@ -238,9 +238,9 @@ Model {
   ModifiedByFormat	  "%<Auto>"
   LastModifiedBy	  "Pascal"
   ModifiedDateFormat	  "%<Auto>"
-  LastModifiedDate	  "Mon Jun 21 12:31:21 2021"
-  RTWModifiedTimeStamp	  546179480
-  ModelVersionFormat	  "1.%<AutoIncrement:25>"
+  LastModifiedDate	  "Fri Jul 02 18:05:55 2021"
+  RTWModifiedTimeStamp	  547149816
+  ModelVersionFormat	  "1.%<AutoIncrement:26>"
   SampleTimeColors	  off
   SampleTimeAnnotations	  off
   LibraryLinkDisplay	  "none"
@@ -1887,7 +1887,7 @@ Model {
       ZOrder		      -33
       ForegroundColor	      "yellow"
       Priority		      "1"
-      LibraryVersion	      "1.2834"
+      LibraryVersion	      "*1.2834"
       FontName		      "Verdana"
       SourceBlock	      "powerlib/powergui"
       SourceType	      "PSB option menu block"
@@ -1937,7 +1937,7 @@ Model {
       ZoomFFT		      off
       StartTime		      "0.06"
       cycles		      "2"
-      DisplayStyle	      "4"
+      DisplayStyle	      "2"
       fundamental	      "50"
       FreqAxis		      off
       MaxFrequency	      "1100"

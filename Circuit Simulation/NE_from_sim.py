@@ -12,7 +12,7 @@ from scipy.io import loadmat
 #  pass name of simulated device (other meta data as well?)
 
 # import from .mat file
-device_name = "SMPS"
+device_name = "EV_4"
 f_max = 5050
 
 #def get_NE_from_sim(device_name, f_max):

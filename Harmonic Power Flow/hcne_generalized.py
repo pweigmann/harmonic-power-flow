@@ -78,7 +78,7 @@ def init_buses_from_csv(filename):
     """ Import bus data from .csv file.
     
     DataFrame with columns:
-    ["ID", "type", "component", "S", "P", "Q", "X_sh", "V_nom"]
+    ["ID", "type", "component", "S", "P", "Q", "X_sh"]
 
     - IDs start from 1 (slack), then list PV, then PQ buses, then nonlinear
     - S = P + jQ is active and reactive Power [W]
@@ -90,18 +90,18 @@ def init_buses_from_csv(filename):
     df.loc[:, "P"] = df.P/BASE_POWER
     df.loc[:, "Q"] = df.Q/BASE_POWER
     df.loc[:, "X_sh"] = df.X_sh/base_impedance
-    df.loc[:, "V_nom"] = df.V_nom/BASE_VOLTAGE
+    #df.loc[:, "V_nom"] = df.V_nom/BASE_VOLTAGE
     return df
 
 
 def init_buses_manually():
     # df for constant properties of buses
     buses = pd.DataFrame(
-        np.array([[1, "slack", "generator", 0, 0, 0, 0.005, 0],
-                  [2, "PQ", "lin_load_1", 0, 100, 100, 0, 0],
-                  [3, "PQ", "lin_load_2", 0, 100, 100, 0, 0],
-                  [4, "nonlinear", "smps", 0, 150, 100, 0, 0]]),
-        columns=["ID", "type", "component", "S", "P", "Q", "X_sh", "V_nom"])
+        np.array([[1, "slack", "generator", 0, 0, 0, 0.005],
+                  [2, "PQ", "lin_load_1", 0, 100, 100, 0],
+                  [3, "PQ", "lin_load_2", 0, 100, 100, 0],
+                  [4, "nonlinear", "smps", 0, 150, 100, 0]]),
+        columns=["ID", "type", "component", "S", "P", "Q", "X_sh"])
     buses.loc[:, "S"] = buses.S/BASE_POWER
     buses.loc[:, "P"] = buses.P/BASE_POWER
     buses.loc[:, "Q"] = buses.Q/BASE_POWER
@@ -110,11 +110,11 @@ def init_buses_manually():
     return buses
 
 
-def init_network(name, from_csv=True):
+def init_network(filename_buses, filename_lines, from_csv=True):
     # TODO: sort buses here, so that users don't have to follow sorting rules
     if from_csv:
-        buses = init_buses_from_csv(name + "_buses.csv")
-        lines = init_lines_from_csv(name + "_lines.csv")
+        buses = init_buses_from_csv(filename_buses)
+        lines = init_lines_from_csv(filename_lines)
     else:
         buses = init_buses_manually()
         lines = init_lines_manually()
@@ -209,17 +209,17 @@ def build_jacobian(V, Y1):
     V_diag = diags(V_vec)
     V_diag_norm = diags(V_vec/abs(V_vec))
 
-    dSda = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
+    dSdA = 1j*V_diag @ (np.conj(I_diag - Y1 @ V_diag))
     dSdV = V_diag_norm @ np.conj(I_diag) + \
         V_diag @ np.conj(Y1 @ V_diag_norm)
 
     # divide sub-matrices into real and imag part, cut off slack, build J
-    dPda = csr_matrix(dSda[1:, 1:].real)
+    dPdA = csr_matrix(dSdA[1:, 1:].real)
     dPdV = csr_matrix(dSdV[1:, c:].real)
-    dQda = csr_matrix(dSda[c:, 1:].imag)
+    dQdA = csr_matrix(dSdA[c:, 1:].imag)
     dQdV = csr_matrix(dSdV[c:, c:].imag)
-    J = vstack([hstack([dPda, dPdV]),
-                hstack([dQda, dQdV])], format="csr")
+    J = vstack([hstack([dPdA, dPdV]),
+                hstack([dQdA, dQdV])], format="csr")
     return J
 
 
@@ -287,7 +287,7 @@ def import_Norton_Equivalents(buses, coupled):
         #file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
         #                + device + "_NE.csv")
         file_path = str("~/Git/harmonic-power-flow/Circuit Simulation/"
-                + device + "_" + str(max(HARMONICS_FREQ)) + "_NE.csv")
+                + device + "_NE.csv")
         NE_device = pd.read_csv(file_path, index_col=["Parameter", "Frequency"])
         # change column type from str to int
         NE_device.columns = NE_device.columns.astype(int)
@@ -593,30 +593,32 @@ base_admittance = base_current/BASE_VOLTAGE
 base_impedance = 1/base_admittance
 
 
-buses, lines, m, n, c = init_network("net3")
-Y = build_admittance_matrices(buses, lines, HARMONICS)
-V_f, err_f, n_converged_f = pf(Y, buses)
+buses, lines, m, n, c = init_network("berlin_suburban_buses_217.csv",
+                                     "berlin_suburban_lines.csv")
+#Y = build_admittance_matrices(buses, lines, HARMONICS)
+#V_f, err_f, n_converged_f = pf(Y, buses)
 
 
 V_h, err_h_final, n_iter_h, J = hpf(buses, lines, coupled=False,
                                     plt_convergence=False)
-#THD_buses = get_THD(V_h)
+THD_buses = get_THD(V_h)
 
 #V_m_bus4 = V_h.loc[idx[:, 3], "V_m"]
 #plt.bar(HARMONICS, V_m_bus4)
 
-#t_end = time.perf_counter()
-# print("Init execution time: " + str(t_end_init - t_start) + " s")
-# print("Fundamental Power Flow execution time: " +
-#       str(t_end_pf - t_end_init) + " s")
-# print("Norton Parameter import execution time: " +
-#       str(t_end_NE_import - t_end_pf) + " s")
-# print("Harmonic Power Flow execution time: " +
-#       str(t_end - t_end_NE_import) + " s")
-# print("- Only HPF solve execution time: " +
-#       str(t_end_hpf_solve - t_start_hpf_solve) + " s")
-# print("Total execution time: " +
-#       str(t_end - t_start) + " s")
-# print("THD [%]: ")
-# print(str(THD_buses.THD_F*100))
-# # if __name__ == '__main__':
+t_end = time.perf_counter()
+print("Init execution time: " + str(t_end_init - t_start) + " s")
+print("Fundamental Power Flow execution time: " +
+      str(t_end_pf - t_end_init) + " s")
+print("Norton Parameter import execution time: " +
+      str(t_end_NE_import - t_end_pf) + " s")
+print("Harmonic Power Flow execution time: " +
+      str(t_end - t_end_NE_import) + " s")
+print("- Only HPF solve execution time: " +
+      str(t_end_hpf_solve - t_start_hpf_solve) + " s")
+print("Total execution time: " +
+      str(t_end - t_start) + " s")
+print("THD [%]: ")
+
+print("THD an Bus 4: " + str(THD_buses.THD_F[3]*100))
+# if __name__ == '__main__':
