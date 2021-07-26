@@ -576,9 +576,9 @@ t_start = time.perf_counter()
 
 # global variables
 BASE_POWER = 1000  # in W
-BASE_VOLTAGE = 230  # in V
+BASE_VOLTAGE = 400  # in V
 
-H_MAX = 5  # has to be either 5, 21, 51 or 101
+H_MAX = 51
 
 NET_FREQ = 50
 HARMONICS = [h for h in range(1, H_MAX+1, 2)]
@@ -593,8 +593,8 @@ base_admittance = base_current/BASE_VOLTAGE
 base_impedance = 1/base_admittance
 
 
-buses, lines, m, n, c = init_network("berlin_suburban_buses_217.csv",
-                                     "berlin_suburban_lines.csv")
+buses, lines, m, n, c = init_network("net2_buses.csv",
+                                     "net2_lines.csv")
 #Y = build_admittance_matrices(buses, lines, HARMONICS)
 #V_f, err_f, n_converged_f = pf(Y, buses)
 

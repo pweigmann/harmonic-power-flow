@@ -5,14 +5,16 @@ import numpy as np
 import pandas as pd
 from scipy.io import loadmat
 
-# TODO:  change angles consistently to degree or rad or go full cartesian
-#  create and use V_supply in same shape and with same index as I_inj
-#  join all data initially by using loop, so it can be accessed vectorized
-#  restructure as functions, call for all files in folder
-#  pass name of simulated device (other meta data as well?)
+# TODO
+#  - change angles consistently to degree or rad or go full cartesian
+#  - create and use V_supply in same shape and with same index as I_inj
+#  - join all data initially by using loop, so it can be accessed vectorized
+#  - restructure as functions, call for all files in folder
+#  - pass name of simulated device (other meta data as well?)
+#  - avoid hardcoded information (like base frequency)
 
 # import from .mat file
-device_name = "EV_4"
+device_name = "SMPS"
 f_max = 5050
 
 #def get_NE_from_sim(device_name, f_max):
@@ -21,7 +23,7 @@ dh[a, b]: a is index for harmonic, varying harmonic voltage source frequency
           b is index for measurement, varying harmonic voltage source magnitude
           Minimum values for uncoupled script to work: a > 0, b > 0
           Example: dh[0, 1] means first harmonic frequency (f_h = 150),
-                   second measurement (e.g. V_m_h = 23).
+                   second measurement (e.g. V_m_h = 2.3).
 df[c]:    c is index for measurement, varying fundamental voltage source angle
 '''
 data = loadmat(device_name + "_" + str(f_max) + ".mat",
@@ -80,6 +82,7 @@ for s in df:
 # final I_inj for all measurements, no inter-harmonics
 I_inj = I_inj_complete.loc(axis=1)[50::dh[0, 0].cycles*2]
 
+
 # --- calculate Norton Equivalent parameters, UNCOUPLED ---
 # (see Thunberg.1999), 2*n measurements (of 1 freq.) for n harmonics
 # build difference between the two measurements, without fund, m2 - m1
@@ -110,7 +113,7 @@ I_N_f = Y_N_f*V_f_m1 + I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]
 I_N_uc = I_N_f.append(I_N_h)
 Y_N_uc = Y_N_f.append(Y_N_h)
 
-# test uncoupled (using measurement 1, dU = 2.3V )
+# test uncoupled (using measurement 1, dU = 0.005pu )
 # calculate I_inj with NE
 V1 = np.array([V_f_m1] + len(supply_f)*[V_h_m1])
 I_inj_test = I_N_uc - np.diag(Y_N_uc) @ V1
@@ -118,7 +121,8 @@ I_inj_test = I_N_uc - np.diag(Y_N_uc) @ V1
 I_inj_m1 = pd.Series(I_inj.loc[(df[0].V_m_f, 50, df[0].V_a_f), [50]]).append(
     pd.Series(np.diagonal(I_inj.loc[dh[0, 0].V_m_h], 1), index=supply_f))
 err = I_inj_test - I_inj_m1
-# test (using measurement 2, dU = 23V)
+
+# test (using measurement 2, dU = 0.01pu)
 V2 = np.array([V_f_m2] + len(supply_f)*[V_h_m2])
 I_inj_test_2 = I_N_uc - np.diag(Y_N_uc) @ V2
 I_inj_m2 = pd.Series(I_inj.loc[(df[1].V_m_f, 50, df[1].V_a_f), [50]]).append(
@@ -168,6 +172,13 @@ YI_N[freq] = V_inv.dot(I_inj_c[freq])
 Y_N_c = np.transpose(YI_N.iloc[:-1])  # (Y_N_ff equal to uncoupled)
 I_N_c = YI_N.iloc[-1]  # (fundamental current source equal to uncoupled)
 
+# spectrum as used for OpenDSS
+spectrum_m = abs(I_inj.iloc[-2, :])/abs(I_inj.iloc[-2, 0])
+spectrum_a = np.angle(I_inj.iloc[-2, :])*180/np.pi
+spec = pd.DataFrame({"Harmonic": [i/50 for i in freq],
+                     "I_m": spectrum_m,
+                     "I_a": spectrum_a})
+
 # test coupled NE for h = 5
 V_uc_test5 = np.zeros(len(freq), dtype=complex)
 V_uc_test5[0] = V_f_m1
@@ -181,7 +192,7 @@ if np.linalg.norm(err_c, np.inf) > 1e-6:
 else:
     print("Coupled parameters passed consistency test.")
 
-# export to file
+# prepare to export to file
 multi_idx_exp = pd.MultiIndex.from_arrays([
     len(freq)*["Y_N_c"] + ["I_N_c", "Y_N_uc", "I_N_uc"],
     freq + [0, 0, 0]], names=["Parameter", "Frequency"])
@@ -192,7 +203,12 @@ NE.loc["I_N_c", 0] = I_N_c.values
 NE.loc["Y_N_uc", 0] = Y_N_uc.values
 NE.loc["I_N_uc", 0] = I_N_uc.values
 
+# export NE as needed for HarmonicPowerFlow.jl
 filename = device_name + "_" + str(f_max) + "_NE.csv"
 NE.to_csv(filename)
 print("Created file " + filename)
 
+# export opendss spectrum
+filename_opendss = "spectrum_" + device_name + "_" + str(f_max) + ".csv"
+spec.to_csv(filename_opendss, header=None, index=None)
+print("Created file " + filename_opendss)
